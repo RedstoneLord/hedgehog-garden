@@ -56,10 +56,19 @@
 }
 .mobile-dock { display: none; }
 @media (max-width: 799px) {
-  .mobile-dock { display: flex; position: absolute; inset: auto 8px calc(env(safe-area-inset-bottom) + 6px); z-index: 35; gap: 4px; }
+  .game-shell { --mobile-menu-bottom: calc(env(safe-area-inset-bottom) + 6px); }
+  .mobile-dock { display: flex; position: absolute; inset: auto 8px var(--mobile-menu-bottom); z-index: 35; gap: 4px; }
   .mobile-dock button { flex: 1 1 0; padding: 5px 3px; min-width: 0; min-height: 42px; font-size: 11px; gap: 3px; }
   .mobile-dock .glyph { width: 14px; height: 14px; }
-  .game-shell .side-window { --panel-max: calc(100dvh - 150px); }
+  .game-shell .side-window:not(.open) { display: none; }
+  .game-shell :is(.side-window.party, .side-window.shop).open {
+    --panel-max: min(58dvh, 580px);
+    top: auto; left: 8px; right: 8px; bottom: calc(var(--mobile-menu-bottom) + 47px);
+    width: min(540px, calc(100% - 16px)); margin: auto; z-index: 33;
+    animation: mobile-sheet-open .16s ease-out;
+  }
+  .game-shell :is(.side-window.party, .side-window.shop) .window-content { overscroll-behavior: contain; }
+  .mobile-dock button[aria-expanded="true"] { background: #76535d; }
   .upgrade-toggle, .industry-toggle { display: none; }
   .game-shell .status-wrap { bottom: 104px; }
   .game-shell .guide-popup { bottom: 58px; }
@@ -72,7 +81,8 @@
   .sprinkler-drop, .working-shop .workshop-smoke, .tractor-art.driving .tractor-wheel { animation: none; }
 }
 @media (max-width: 799px) {
-  .game-shell .camera-controls { bottom: 57px; }
+  .game-shell .camera-controls { bottom: calc(var(--mobile-menu-bottom) + 47px); }
+  .game-shell:has(.side-window.open) .map-viewport + .camera-controls { visibility: hidden; }
 }
  
 .game-select { min-width: 0; }
@@ -86,3 +96,8 @@
 .game-select :is(.game-select-toggle, .game-select-option):focus-visible { outline: 2px solid #ffdb8b; outline-offset: -2px; }
 .game-select :disabled { opacity: .55; }
 .market-reserve .game-select { width: 100%; }
+
+@keyframes mobile-sheet-open {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}

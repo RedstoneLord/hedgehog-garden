@@ -43,10 +43,19 @@ const trafficLabel = { high:'много путников', medium:'умерен�
 
 function initialGame() {
   try {
-    const game = loadGame(localStorage);
-    if (localStorage.getItem(SAVE_KEY)) game.guide = null;
+    const nativeSave = globalThis.OrchardAndroid?.readSave();
+    const game = (nativeSave && importGame(nativeSave)) || loadGame(localStorage);
+    if (nativeSave || localStorage.getItem(SAVE_KEY)) game.guide = null;
     return game;
   } catch { return newGame(); }
+}
+
+function persistGame(game) {
+  const json = JSON.stringify(game);
+  try {
+    if (globalThis.OrchardAndroid?.writeSave(json)) return;
+    localStorage.setItem(SAVE_KEY, json);
+  } catch { /* The session can continue in memory when storage is unavailable. */ }
 }
 
 function useGame() {
@@ -61,19 +70,22 @@ function useGame() {
       previous = now;
       if (!document.hidden) setState(game => advance(game, elapsed));
     }, 85);
-    const save = () => {
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(latest.current)); } catch { /* Storage is optional. */ }
-    };
-    const autosave = setInterval(save, 600);
+    const save = () => persistGame(latest.current);
+    const saveWhenHidden = () => { if (document.hidden) save(); };
+    if (globalThis.OrchardAndroid) globalThis.orchardFlushSave = save;
+    const autosave = setInterval(save, globalThis.OrchardAndroid ? 2500 : 600);
+    document.addEventListener('visibilitychange', saveWhenHidden);
     window.addEventListener('pagehide', save);
     return () => {
       clearInterval(tick);
       clearInterval(autosave);
+      document.removeEventListener('visibilitychange', saveWhenHidden);
+      if (globalThis.orchardFlushSave === save) delete globalThis.orchardFlushSave;
       window.removeEventListener('pagehide', save);
     };
   }, []);
   function replace(imported) {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(imported)); } catch { /* The save can still run in memory. */ }
+    persistGame(imported);
     latest.current = imported;
     setState(imported);
   }
@@ -327,7 +339,7 @@ function Hardware() {
 }
 
 function Panel({ name, symbol, open, toggle, side, profile, onProfileClose, onRename, contentKey, children }) {
-  return <aside className={`side-window ${side}${open ? ' open' : ''}`} aria-label={name}>
+  return <aside id={`panel-${side}`} className={`side-window ${side}${open ? ' open' : ''}`} aria-label={name}>
     <section className="pixel-window">
       <Hardware/>
       <header className="panel-heading">
@@ -577,7 +589,12 @@ function SaveTransfer({ state, onClose, onImport }) {
   }, []);
 
   function download() {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: 'application/json' }));
+    const json = JSON.stringify(state);
+    if (globalThis.OrchardAndroid) {
+      globalThis.OrchardAndroid.exportSave(json);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
     link.download = 'orchard-save.json';
@@ -622,7 +639,7 @@ function SaveTransfer({ state, onClose, onImport }) {
 export function GameView({ state, dispatch, onImport }) {
   const [wide, setWide] = useState(() => (globalThis.innerWidth ?? 1440) >= 800);
   const [partyOpen, setPartyOpen] = useState(wide);
-  const [shopOpen, setShopOpen] = useState(wide || !state.unlocked);
+  const [shopOpen, setShopOpen] = useState(wide);
   const [treeOpen, setTreeOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [marketId, setMarketId] = useState(null);
@@ -658,7 +675,10 @@ export function GameView({ state, dispatch, onImport }) {
     const query = window.matchMedia('(min-width: 800px)');
     function resize({ matches }) {
       setWide(matches);
-      if (!matches) setPartyOpen(false);
+      if (!matches) {
+        setPartyOpen(false);
+        setShopOpen(false);
+      }
     }
     query.addEventListener('change', resize);
     return () => query.removeEventListener('change', resize);
@@ -881,7 +901,7 @@ export function GameView({ state, dispatch, onImport }) {
       <div className="hud-actions">
         {state.trade.permit && <button type="button" className="pixel-button square industry-toggle" aria-label="Хозяйство" onClick={() => setIndustry('overview')}><Glyph name="table"/></button>}
         <button type="button" className="pixel-button square" aria-pressed={audio.effects} aria-label="Звуки" onClick={audio.toggleEffects}><Glyph name="sound"/></button>
-        <button type="button" className="pixel-button square" aria-pressed={audio.music} aria-label="Музыка" onClick={audio.toggleMusic}><Glyph name="note"/></button>
+        <button type="button" className="pixel-button square" aria-pressed={audio.ambience} aria-label="Музыка и звуки природы" onClick={audio.toggleAmbience}><Glyph name="note"/></button>
         {state.trade.stalls.length > 0 && <button type="button" className="pixel-button square trade-world-button" aria-label="Открыть торговую лавку"
           onClick={() => { changeMode(null); setMarketId(state.trade.stalls[0].id); }}><Glyph name="market"/></button>}
         <button type="button" className="pixel-button square save-button" aria-label="Перенос сохранения" onClick={() => setSaveOpen(true)}><Glyph name="save"/></button>
@@ -911,8 +931,8 @@ export function GameView({ state, dispatch, onImport }) {
       {state.notice && !error && <div className="status-chip notice-chip pixel-window">{icon(state.notice.symbol, state.notice.text)}</div>}
     </div>
     <nav className="mobile-dock" aria-label="Меню игры">
-      {state.unlocked && <button type="button" className="pixel-button" aria-pressed={partyOpen} onClick={() => { setPartyOpen(!partyOpen); setShopOpen(false); }}>{icon('hedge', 'Ёжики')}</button>}
-      <button type="button" className="pixel-button" aria-pressed={shopOpen} onClick={() => { setShopOpen(!shopOpen); setPartyOpen(false); }}>{icon('seed', 'Лавка')}</button>
+      {state.unlocked && <button type="button" className="pixel-button" aria-controls="panel-party" aria-expanded={partyOpen} onClick={() => { setPartyOpen(!partyOpen); setShopOpen(false); }}>{icon('hedge', 'Ёжики')}</button>}
+      <button type="button" className="pixel-button" aria-controls="panel-shop" aria-expanded={shopOpen} onClick={() => { setShopOpen(!shopOpen); setPartyOpen(false); }}>{icon('seed', 'Лавка')}</button>
       <button type="button" className="pixel-button" onClick={() => setTreeOpen(true)}>{icon('tree', 'Улучшения')}</button>
       {state.trade.permit && <button type="button" className="pixel-button" onClick={() => setIndustry('overview')}>{icon('table', 'Хозяйство')}</button>}
     </nav>

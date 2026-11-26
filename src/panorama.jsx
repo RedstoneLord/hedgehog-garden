@@ -50,7 +50,11 @@ export function usePanorama({ bounds, initial, fit = 'cover', onHover, onDrag, o
     if (event.button > 0) return;
     if (!contacts.current.size) moved.current = false;
     contacts.current.set(event.pointerId, local(event));
-    if (contacts.current.size > 1) moved.current = true;
+    if (contacts.current.size > 1) {
+      moved.current = true;
+      for (const pointerId of contacts.current.keys()) viewport.current.setPointerCapture(pointerId);
+      onDrag?.();
+    }
   }
 
   function pointerMove(event) {
@@ -75,7 +79,12 @@ export function usePanorama({ bounds, initial, fit = 'cover', onHover, onDrag, o
     }
   }
 
-  const pointerUp = event => contacts.current.delete(event.pointerId);
+  const endPointer = event => contacts.current.delete(event.pointerId);
+  function losePointerCapture(event) {
+    // Touch initially captures the button or sprite under the finger. Its loss
+    // bubbles here when the viewport takes capture to start panning.
+    if (event.target === event.currentTarget) endPointer(event);
+  }
   function keyDown(event) {
     if (event.target !== viewport.current) return;
     if (Object.hasOwn(directions, event.key)) {
@@ -90,8 +99,12 @@ export function usePanorama({ bounds, initial, fit = 'cover', onHover, onDrag, o
   return {
     surface: {
       ref: viewport, tabIndex: 0, onPointerDown: pointerDown, onPointerMove: pointerMove,
-      onPointerUp: pointerUp, onPointerCancel: pointerUp, onLostPointerCapture: pointerUp, onKeyDown: keyDown,
-      onPointerLeave: () => { onDrag?.(); if (!moved.current) contacts.current.clear(); },
+      onPointerUp: endPointer, onPointerCancel: endPointer, onLostPointerCapture: losePointerCapture, onKeyDown: keyDown,
+      onPointerLeave: event => {
+        if (event.pointerType !== 'mouse') return;
+        onDrag?.();
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) endPointer(event);
+      },
     },
     scene: { width: bounds.width, height: bounds.height, transform: `translate(${center.x - camera.x * camera.zoom}px, ${center.y - camera.y * camera.zoom}px) scale(${camera.zoom})` },
     dragged: event => moved.current && event.detail !== 0,

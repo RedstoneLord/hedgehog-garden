@@ -1,83 +1,172 @@
 import { useEffect, useRef, useState } from 'react';
+import ambienceUrl from './audio/orchard-ambience.mp3?inline';
+import musicUrl from './audio/calm-track.mp3?inline';
+import chimeUrl from './audio/game-chime.wav?inline';
+import tapUrl from './audio/tap.mp3?inline';
+import basketUrl from './audio/basket.mp3?inline';
+import harvestAUrl from './audio/harvest-a.mp3?inline';
+import harvestBUrl from './audio/harvest-b.mp3?inline';
+import harvestCUrl from './audio/harvest-c.mp3?inline';
+import waterUrl from './audio/water.mp3?inline';
+import coinsUrl from './audio/coins.mp3?inline';
+import chirpUrl from './audio/chirp.mp3?inline';
 
-const setting = (key, fallback) => {
-  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+const backgroundTracks = [
+  { url: ambienceUrl, volume: .20 },
+  { url: musicUrl, volume: .10 },
+];
+
+const samples = {
+  tap: { clips: [tapUrl], volume: .22, gap: 65, chime: { volume: .085, rate: 1.12 } },
+  basket: { clips: [basketUrl], volume: .33, gap: 550, chime: { volume: .13, rate: .84 } },
+  harvest: { clips: [harvestAUrl, harvestBUrl, harvestCUrl], volume: .4, gap: 275, chime: { volume: .13, rate: 1 } },
+  water: { clips: [waterUrl], volume: .45, gap: 500, chime: { volume: .11, rate: 1.26 } },
+  coins: { clips: [coinsUrl], volume: .53, gap: 260, chime: { volume: .19, rate: 1.5 } },
+  chirp: { clips: [chirpUrl], volume: .34, gap: 720 },
 };
-const notes = [67, 71, 74, 76, 74, 71, 69, 67, 64, 67, 71, 74, 72, 69, 67, 62];
-const bass = [43, 43, 45, 45, 40, 40, 38, 38];
 
-function play(context, midi, time, length, volume, type = 'triangle') {
-  const wave = context.createOscillator();
-  const gain = context.createGain();
-  wave.type = type;
-  wave.frequency.value = 440 * 2 ** ((midi - 69) / 12);
-  gain.gain.setValueAtTime(.0001, time);
-  gain.gain.exponentialRampToValueAtTime(volume, time + .018);
-  gain.gain.exponentialRampToValueAtTime(.0001, time + length);
-  wave.connect(gain).connect(context.destination);
-  wave.start(time);
-  wave.stop(time + length);
+function setting(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
+
+function decodeSample(engine, url) {
+  if (!engine.decoded.has(url)) {
+    const bytes = Uint8Array.from(atob(url.split(',')[1]), char => char.charCodeAt(0));
+    engine.decoded.set(url, engine.decodeAudioData(bytes.buffer));
+  }
+  return engine.decoded.get(url);
+}
+
+function startVoice(engine, buffer, { volume, rate }, when) {
+  const source = engine.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = rate;
+  const gain = engine.createGain();
+  gain.gain.value = volume;
+  source.connect(gain).connect(engine.destination);
+  source.start(when);
+}
+
+function playSample(engine, name) {
+  if (!engine || engine.state !== 'running' || document.hidden) return;
+  const sample = samples[name];
+  const clip = sample.clips[Math.floor(Math.random() * sample.clips.length)];
+  const accent = sample.chime ? decodeSample(engine, chimeUrl).catch(() => null) : null;
+  Promise.all([decodeSample(engine, clip), accent]).then(([recording, chime]) => {
+    if (engine.state !== 'running' || document.hidden || engine.muted) return;
+    const at = performance.now();
+    if (at - (engine.lastPlayed.get(name) ?? -Infinity) < sample.gap) return;
+    engine.lastPlayed.set(name, at);
+    const when = engine.currentTime + .008;
+    startVoice(engine, recording, { volume: sample.volume, rate: .94 + Math.random() * .12 }, when);
+    if (chime && at - (engine.lastPlayed.get('chime') ?? -Infinity) >= 70) {
+      engine.lastPlayed.set('chime', at);
+      startVoice(engine, chime, sample.chime, when + .018);
+    }
+  }).catch(() => {});
+}
+
+const visitorIds = state => new Set(state.trade.stalls.flatMap(stall =>
+  stall.customers.filter(customer => customer.phase === 'queue').map(customer => customer.id)));
 
 export function useGameAudio(state) {
   const [effects, setEffects] = useState(() => setting('orchard-sounds', true));
-  const [music, setMusic] = useState(() => setting('orchard-music', false));
-  const [ready, setReady] = useState(false);
+  const [ambience, setAmbience] = useState(() => setting('orchard-music', false));
   const context = useRef(null);
-  const sight = useRef({ guide: state.guide?.serial, notice: state.notice?.serial, customers: new Set(), fruit: state.trees.map(tree => tree.pulse?.id).join(',') });
-  useEffect(() => {
-    function unlock() {
-      const Audio = window.AudioContext ?? window.webkitAudioContext;
-      if (!Audio) return;
-      context.current ??= new Audio();
-      context.current.resume().then(() => setReady(true)).catch(() => {});
+  const background = useRef([]);
+  const seen = useRef(null);
+
+  function syncAmbience(enabled) {
+    if (!enabled || document.hidden) {
+      for (const audio of background.current) audio.pause();
+      return;
     }
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-  }, []);
-  useEffect(() => {
-    if (!ready || !effects) return;
-    const click = event => {
-      if (!event.target.closest?.('button:not([disabled]), select')) return;
-      play(context.current, 63, context.current.currentTime, .07, .024, 'square');
-    };
-    window.addEventListener('click', click);
-    return () => window.removeEventListener('click', click);
-  }, [effects, ready]);
-  useEffect(() => {
-    const prev = sight.current;
-    const customers = new Set(state.trade.stalls.flatMap(stall => stall.customers.filter(customer => customer.phase === 'queue').map(customer => customer.id)));
-    const fruit = state.trees.map(tree => tree.pulse?.id).join(',');
-    sight.current = { customers, fruit, notice: state.notice?.serial, guide: state.guide?.serial };
-    if (!ready || !effects || document.hidden) return;
-    const engine = context.current, now = engine.currentTime;
-    let sounds;
-    if (state.guide && state.guide.serial !== prev.guide || [...customers].some(id => !prev.customers.has(id))) sounds = [60, 64, 62, 67, 64];
-    else if (state.notice && state.notice.serial !== prev.notice) sounds = {
-      coin: [72, 79, 84], water: [79, 74, 69], apple: [65, 77], berry: [65, 77], jar: [73, 78], fuel: [46, 50, 53],
-    }[state.notice.symbol] ?? [66, 69];
-    else if (fruit !== prev.fruit) sounds = [67, 74];
-    sounds?.forEach((note, i) => play(engine, note, now + i * .078, .13, i ? .035 : .045));
-  }, [state, effects, ready]);
-  useEffect(() => {
-    if (!ready || !music) return;
-    let step = 0;
-    const timer = setInterval(() => {
-      if (document.hidden) return;
-      const engine = context.current, time = engine.currentTime;
-      if (step % 4 === 0) play(engine, bass[(step / 4) % bass.length], time, .76, .024);
-      play(engine, notes[step++ % notes.length], time, .36, .018);
-    }, 490);
-    return () => clearInterval(timer);
-  }, [music, ready]);
-  function toggle(key, value, setter) {
-    setter(!value);
-    try { localStorage.setItem(key, JSON.stringify(!value)); } catch { /* Optional preferences. */ }
+    if (!background.current.length) {
+      background.current = backgroundTracks.map(({ url, volume }) => {
+        const audio = new Audio(url);
+        audio.loop = true;
+        audio.volume = volume;
+        return audio;
+      });
+    }
+    for (const audio of background.current) {
+      if (audio.paused) audio.play().catch(() => {});
+    }
   }
-  return { effects, music, toggleEffects: () => toggle('orchard-sounds', effects, setEffects),
-    toggleMusic: () => toggle('orchard-music', music, setMusic) };
+
+  useEffect(() => {
+    function activate() {
+      if (effects) {
+        const AudioEngine = window.AudioContext ?? window.webkitAudioContext;
+        if (AudioEngine && !context.current) {
+          const engine = new AudioEngine();
+          engine.decoded = new Map();
+          engine.lastPlayed = new Map();
+          context.current = engine;
+        }
+        const engine = context.current;
+        if (engine?.state !== 'running') engine?.resume().catch(() => {});
+      }
+      if (ambience) syncAmbience(true);
+    }
+    function click(event) {
+      activate();
+      if (effects && event.target.closest?.('button:not([disabled]):not(.map-item), select')) {
+        playSample(context.current, 'tap');
+      }
+    }
+    function visibility() {
+      syncAmbience(ambience);
+    }
+    if (!ambience) syncAmbience(false);
+    if (context.current) context.current.muted = !effects;
+    window.addEventListener('click', click);
+    window.addEventListener('keydown', activate);
+    window.addEventListener('pointerup', activate);
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      window.removeEventListener('click', click);
+      window.removeEventListener('keydown', activate);
+      window.removeEventListener('pointerup', activate);
+      document.removeEventListener('visibilitychange', visibility);
+    };
+  }, [ambience, effects]);
+  useEffect(() => () => {
+    for (const audio of background.current) audio.pause();
+    context.current?.close().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const before = seen.current;
+    const visitors = visitorIds(state);
+    const harvest = state.trees.reduce((latest, tree) => Math.max(latest, tree.pulse?.id ?? 0), 0);
+    const receipt = Math.max(state.basketReceipt?.id ?? 0, before?.receipt ?? 0);
+    seen.current = { visitors, harvest, receipt, notice: state.notice?.serial, guide: state.guide?.serial,
+      quote: state.quote?.until, coins: state.trade.coins, water: state.trade.canWater };
+    if (!before || !effects) return;
+
+    if (state.trade.coins > before.coins) playSample(context.current, 'coins');
+    if (state.trade.canWater !== before.water || state.notice?.symbol === 'water' && state.notice.serial !== before.notice) {
+      playSample(context.current, 'water');
+    }
+    if (harvest > before.harvest) playSample(context.current, 'harvest');
+    if (receipt > before.receipt) playSample(context.current, 'basket');
+    if (state.guide && state.guide.serial !== before.guide || state.quote && state.quote.until !== before.quote
+      || [...visitors].some(id => !before.visitors.has(id))) playSample(context.current, 'chirp');
+  }, [state, effects]);
+
+  function saveSetting(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Optional preferences. */ }
+  }
+  function toggleEffects() {
+    if (context.current) context.current.muted = effects;
+    setEffects(!effects);
+    saveSetting('orchard-sounds', !effects);
+  }
+  function toggleAmbience() {
+    setAmbience(!ambience);
+    saveSetting('orchard-music', !ambience);
+    syncAmbience(!ambience);
+  }
+  return { effects, ambience, toggleEffects, toggleAmbience };
 }
