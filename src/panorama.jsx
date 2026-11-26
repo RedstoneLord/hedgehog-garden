@@ -108,7 +108,7 @@ export function usePanorama({ bounds, initial, fit = 'cover', onHover, onDrag, o
     },
     scene: { width: bounds.width, height: bounds.height, transform: `translate(${center.x - camera.x * camera.zoom}px, ${center.y - camera.y * camera.zoom}px) scale(${camera.zoom})` },
     dragged: event => moved.current && event.detail !== 0,
-    toWorld, centerPoint: camera, zoom: camera.zoom, zoomAt, reset: () => setCamera(initial(size)),
+    toWorld, centerPoint: camera, viewSize: size, zoom: camera.zoom, zoomAt, reset: () => setCamera(initial(size)),
     focus,
   };
 }

@@ -6,24 +6,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 : "${GITHUB_REPOSITORY:?Set the GitHub repository}"
 : "${GITHUB_SHA:?Set the source commit SHA}"
 
-version=$(node -p 'require("./package.json").version')
+version=$(node scripts/release-version.mjs version)
 tag="v$version"
 published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name')
-version_code=$(PUBLISHED_TAGS="$published" node --input-type=module - "$version" <<'JS'
-function versionCode(version) {
-  if (!/^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.test(version)) return 0;
-  const [major, minor, patch] = version.split('.').map(Number);
-  const code = major * 1_000_000 + minor * 1_000 + patch;
-  return code <= 2_100_000_000 ? code : 0;
-}
-
-const code = versionCode(process.argv[2]);
-if (!code) throw new Error('Expected a stable Android release version in package.json');
-const published = process.env.PUBLISHED_TAGS.split('\n').map(tag => versionCode(tag.replace(/^v/, '')));
-if (published.some(previous => previous >= code)) process.stdout.write('skip');
-else process.stdout.write(String(code));
-JS
-)
+version_code=$(PUBLISHED_TAGS="$published" node scripts/release-version.mjs candidate "$version")
 if [[ "$version_code" == skip ]]; then
   printf '%s is already published or superseded.\n' "$tag"
   exit 0

@@ -4,7 +4,7 @@ import { act, advance, canPlaceSprinkler, constructionPlots, FOREST_WORKPLACE, i
 import { hairstyles, looks } from '../src/customer-looks.js';
 import { CUSTOMERS } from '../src/customers.js';
 import { basketLimit, berryBounds, BERRY_ORCHARD, FOREST_BASKET, FOREST_ORCHARD } from '../src/orchard.js';
-import { advanceCustomers, BERRY_OFFER_DELAY, canServe, farmAvailable, farmSite, frontCustomer, GLOBAL_UPGRADES, globalUpgradePrice, landPrice, landSite, marketSite, orderPayment, queueCapacity, stallPrice } from '../src/trade.js';
+import { advanceCustomers, BERRY_OFFER_DELAY, canServe, farmAvailable, farmSite, frontCustomer, GLOBAL_UPGRADES, globalUpgradePrice, landPrice, landSite, marketSite, orderPayment, PERMIT_PRICE, queueCapacity, stallPrice } from '../src/trade.js';
 import { FOREST_CLEARING, riverDistance, terrainKind, TRADE_GATES, TRADE_ROADS } from '../src/terrain.js';
 
 const stallSpot = { x: 3090, y: 1350 };
@@ -195,14 +195,16 @@ test('forest orchard costs 1750, uses larger baskets, and unlocks a permit and a
   const balance = state.apples;
   state = until(state, current => current.apples > balance, 3000);
   assert.equal(state.apples - balance,78);
+  assert.equal(PERMIT_PRICE, 2500);
   const before = state.apples;
+  assert.equal(act({ ...state, apples: PERMIT_PRICE - 1 }, 'permit').trade.permit, false);
   state = act(state,'permit');
-  assert.equal(state.apples,before-5000);
+  assert.equal(state.apples,before-2500);
   assert.equal(stallPrice(state),0);
   assert.equal(act(state,'placeMarket',{point:{x:3100,y:1470}}),state);
   state = act(state,'placeMarket',{point:stallSpot});
   assert.equal(state.trade.stalls.length,1);
-  assert.equal(state.apples,before-5000);
+  assert.equal(state.apples,before-2500);
   assert.ok(stallPrice(state) >= 1000);
 });
 
@@ -300,14 +302,14 @@ test('a saved stall on the new road moves off the roadway with its stock and acc
 
 test('customers enter from path endpoints and each accepted order pays once', () => {
   let state = withStall();
-  assert.equal(advance(state, 24_000).trade.stalls[0].customers.length, 0);
-  state = advance(state,25_000);
+  assert.equal(advance(state, 13_999).trade.stalls[0].customers.length, 0);
+  state = advance(state,14_000);
   const customer = state.trade.stalls[0].customers[0];
   assert.deepEqual(state.trade.visitorsSeen, []);
   assert.equal(customer.kind,'bobby');
   assert.equal(customer.order.apples,200);
   assert.equal(customer.order.coins,90);
-  assert.equal(state.trade.stalls[0].spawnAt - state.time, 90_000);
+  assert.equal(state.trade.stalls[0].spawnAt - state.time, 55_000);
   assert.deepEqual({x:customer.x,y:customer.y}, TRADE_GATES[customer.gate]);
   assert.ok(customer.route.points.every(point => terrainKind(point) === 'road'));
   state = until(state, current => frontCustomer(current.trade.stalls[0]));
@@ -324,6 +326,9 @@ test('customers enter from path endpoints and each accepted order pays once', ()
   const old = structuredClone(state);
   delete old.trade.visitorsSeen;
   assert.deepEqual(importGame(JSON.stringify(old)).trade.visitorsSeen, ['bobby']);
+  old.trade.stalls[0].spawnAt = old.time + 90_000;
+  const migrated = importGame(JSON.stringify(old));
+  assert.equal(migrated.trade.stalls[0].spawnAt, old.time + 55_000);
   const removed = act(state, 'removeMarket', { stallId: stall.id });
   assert.deepEqual(importGame(JSON.stringify(removed)).trade.visitorsSeen, ['bobby']);
 });

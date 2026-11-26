@@ -117,7 +117,7 @@ function startBatch(state, shop, key, method) {
   }
   if (method === 'factory') adjustStock(state, 'fuel', -1);
   const speed = (method === 'factory' ? 2 : method === 'worker' ? 1.18 : 1) *
-    (state.upgrades.includes('batchCraft') ? 1.25 : 1);
+    (state.upgrades.includes('batchCraft') ? 1.25 : 1) * (state.upgrades.includes('packingLine') ? 1.25 : 1);
   shop.batch = { key, method, until: state.time + recipe.ms / speed };
   return true;
 }
@@ -254,17 +254,19 @@ function budget(state, store, key) {
 
 function chooseDelivery(state, tractor) {
   const options = [];
+  const trailer = state.upgrades.includes('roadFreight');
+  const cargoLimit = trailer ? 64 : 48;
   const platforms = [HOUSE, ...state.industry.houses];
   const home = nearestHome(state, tractor);
   const offer = (from, to, amount, priority, item, source, destination) => {
     if (amount > 0) options.push({ from, toPoint: to, item, source, to: destination, amount, priority });
   };
   for (const orchard of state.orchards) {
-    if (orchard.ready.length) offer(orchard.basket, nearestHome(state, orchard.basket), Math.min(3, orchard.ready.length), 1, 'basket', orchard.id, 'house');
+    if (orchard.ready.length) offer(orchard.basket, nearestHome(state, orchard.basket), Math.min(trailer ? 4 : 3, orchard.ready.length), 1, 'basket', orchard.id, 'house');
   }
   for (const mine of state.industry.mines) offer(mine, nearestHome(state, mine), mine.fuel, stockCount(state, 'fuel') < 3 ? 3 : 2, 'fuel', mine.id, 'house');
   for (const shop of state.industry.workshops) {
-    for (const [item, qty] of Object.entries(shop.output)) offer(shop, nearestHome(state, shop), Math.min(qty, 48), 2, item, shop.id, 'house');
+    for (const [item, qty] of Object.entries(shop.output)) offer(shop, nearestHome(state, shop), Math.min(qty, cargoLimit), 2, item, shop.id, 'house');
     if (shop.automatic === false) continue;
     for (const [item, qty] of Object.entries(RECIPES[shop.recipe].needs)) {
       const need = Math.max(0, qty * 2 - budget(state, shop, item));
@@ -281,11 +283,11 @@ function chooseDelivery(state, tractor) {
       const viaWorkers = state.jobs.reduce((sum, job) => sum + (job.stallId === stall.id && job.cargo?.key === item ? job.cargo.amount : 0), 0);
       const amount = (order[item] ?? 0) - (stall.stock[item] ?? 0) - viaWorkers - incomingGoods(state, `stall:${stall.id}`, item);
       const warehouse = Math.max(0, stockCount(state, item) - (item === 'apples' ? stall.reserve : 0));
-      const load = Math.min(48, amount, warehouse, capacity);
+      const load = Math.min(cargoLimit, amount, warehouse, capacity);
       offer(platforms.reduce((a, b) => distance(b, tractor) + distance(b, stall) < distance(a, tractor) + distance(a, stall) ? b : a), stall,
         load, 5, item, 'house', `stall:${stall.id}`);
       for (const shop of state.industry.workshops) {
-        offer(shop, stall, Math.min(48, amount, shop.output[item] ?? 0, capacity), 5, item, shop.id, `stall:${stall.id}`);
+        offer(shop, stall, Math.min(cargoLimit, amount, shop.output[item] ?? 0, capacity), 5, item, shop.id, `stall:${stall.id}`);
       }
     }
   }
@@ -401,7 +403,7 @@ export function advanceIndustry(state, seconds, deposit) {
     if (mine.mineAt && mine.mineAt <= state.time) {
       mine.mineAt = null;
       mine.coal += 3;
-      mine.refineAt = state.time + 4500;
+      mine.refineAt = state.time + (state.upgrades.includes('coalKiln') ? 3000 : 4500);
     }
     if (mine.refineAt && mine.refineAt <= state.time) {
       mine.coal -= 3;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppleTree, BasketArt, BedArt, CompostArt, CrateRackArt, FlowerArt, Glyph, HedgeSprite, HouseArt, LoadingTableArt, OrchardFence, OrchardPavers, SleepLetters, SoilArt, SprinklerArt, StorageArt, WorkerMarker, WorldBackdrop } from './art.jsx';
 import {
@@ -23,6 +23,7 @@ import { IndustryArt, MountainArt, WheatArt } from './industry-art.jsx';
 import { IndustryScreen } from './industry-screen.jsx';
 import { plotGap, soilRate } from './siting.js';
 import { useGameAudio } from './sound.js';
+import { MainMenu } from './main-menu.jsx';
 import './style.css';
 import './industry.css';
 
@@ -58,22 +59,25 @@ function persistGame(game) {
   } catch { /* The session can continue in memory when storage is unavailable. */ }
 }
 
-function useGame() {
+function useGame(screen) {
   const [state, setState] = useState(initialGame);
   const latest = useRef(state);
   useEffect(() => { latest.current = state; }, [state]);
   useEffect(() => {
+    if (screen === 'launch') return;
+    const playing = screen === 'game';
     let previous = performance.now();
-    const tick = setInterval(() => {
+    const tick = playing ? setInterval(() => {
       const now = performance.now();
       const elapsed = Math.min(now - previous, 200);
       previous = now;
       if (!document.hidden) setState(game => advance(game, elapsed));
-    }, 85);
+    }, 85) : undefined;
     const save = () => persistGame(latest.current);
     const saveWhenHidden = () => { if (document.hidden) save(); };
     if (globalThis.OrchardAndroid) globalThis.orchardFlushSave = save;
-    const autosave = setInterval(save, globalThis.OrchardAndroid ? 2500 : 600);
+    const autosave = playing ? setInterval(save, globalThis.OrchardAndroid ? 2500 : 600) : undefined;
+    if (!playing) save();
     document.addEventListener('visibilitychange', saveWhenHidden);
     window.addEventListener('pagehide', save);
     return () => {
@@ -83,7 +87,7 @@ function useGame() {
       if (globalThis.orchardFlushSave === save) delete globalThis.orchardFlushSave;
       window.removeEventListener('pagehide', save);
     };
-  }, []);
+  }, [screen]);
   function replace(imported) {
     persistGame(imported);
     latest.current = imported;
@@ -92,7 +96,7 @@ function useGame() {
   return [state, (action, data) => setState(game => act(game, action, data)), replace];
 }
 
-function MapSprite({ item, state, handlers, tap, mode, selected }) {
+function MapSprite({ item, state, handlers, mode, selected }) {
   const { kind } = item;
   const base = { ...xy(item), zIndex: Math.round(item.y - WORLD.y) };
   if (kind === 'mountain') return <div className="map-item mountain-item" style={base}><MountainArt/></div>;
@@ -101,7 +105,7 @@ function MapSprite({ item, state, handlers, tap, mode, selected }) {
     const driver = state.workers.find(worker => worker.id === site.trip?.driverId);
     const label = site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label;
     return <button type="button" className={`map-item industry-item industry-${site.kind}`} style={base}
-      aria-label={`Открыть: ${label} ${site.number}`} onClick={event => handlers.industry(event, site)}>
+      aria-label={`${site.kind === 'house' ? 'Открыть хозяйство' : 'Открыть'}: ${label} ${site.number}`} onClick={event => handlers.industry(event, site)}>
       <IndustryArt site={site} driver={driver}/><span className="basket-label">{label} {site.number}</span>
     </button>;
   }
@@ -117,24 +121,11 @@ function MapSprite({ item, state, handlers, tap, mode, selected }) {
   }
   if (kind === 'water') return <button type="button" className="map-item pixel-button mini water-point" style={base}
     aria-label="Набрать воду у реки" onClick={event => handlers.water(event,item)}>{icon('water','Набрать воду')}</button>;
-  if (kind === 'berries' || kind === 'wild') {
-    const dry = kind === 'berries' && !item.fruit && item.readyAt === null;
-    const watered = kind === 'berries' && !item.fruit && !dry;
-    const label = kind === 'wild' ? `Дикие ягоды: ${item.fruit}` : dry ? `Полить: ${VARIETIES[item.variety].label}` : watered ? `${VARIETIES[item.variety].label} · растёт` : `Собрать: ${VARIETIES[item.variety].label} ×${item.fruit}`;
-    return <button type="button" className={`map-item berry-item${dry ? ' dry' : ''}`} style={base}
-      aria-label={label} onClick={event => (kind === 'wild' ? handlers.wild : handlers.tree)(event,item)}>
-      {item.variety === 'wheat' ? <WheatArt ripe={item.fruit > 0} dry={dry}/> : <BerryBushArt fruit={item.fruit} drying={dry} watered={watered}/>}
-      {(item.fruit > 0 || dry) && <span className="fruit-label berry">{dry ? <Glyph name="water"/> : item.fruit}</span>}
-    </button>;
-  }
-  if (kind === 'tree') {
-    const pulse = item.pulse && state.time - item.pulse.at < 650 ? `pick-${item.pulse.id}` : null;
-    const clicked = tap?.id === item.id && state.time - tap.at < 650;
-    const interaction = clicked && (!pulse || tap.at >= item.pulse.at) ? `tap-${tap.serial}` : pulse;
-    const label = mode === 'clear' ? `Срубить дерево. ${VARIETIES[item.variety].label}` : `${VARIETIES[item.variety].label}, яблок: ${item.fruit}`;
-    return <button type="button" className={`map-item tree-item${item.fruit ? ' ripe' : ''}`} style={{ ...base, '--wind-delay': `-${item.id % 19 * 5}s` }} aria-label={label} onClick={event => handlers.tree(event, item)}>
-      <span key={interaction} className={`tree-motion${interaction ? ' touched' : ''}`}><AppleTree fruit={item.fruit} variety={item.variety} grafted={item.grafted}/></span>
-      {item.fruit > 0 && <span className={`fruit-label ${item.variety}`} aria-hidden="true">{item.fruit}</span>}
+  if (kind === 'wild') {
+    return <button type="button" className="map-item berry-item" style={base} aria-label={`Дикие ягоды: ${item.fruit}`}
+      onClick={event => handlers.wild(event, item)}>
+      <BerryBushArt fruit={item.fruit}/>
+      {item.fruit > 0 && <span className="fruit-label berry">{item.fruit}</span>}
     </button>;
   }
   if (kind === 'flower') return <button type="button" className="map-item flower-item" style={base} aria-label="Подобрать цветок бодрости" onClick={event => handlers.flower(event, item)}><FlowerArt variant={item.variant}/></button>;
@@ -165,12 +156,17 @@ function MapSprite({ item, state, handlers, tap, mode, selected }) {
   if (kind === 'storage') return <div className="map-item storage-item" style={base} role="img" aria-label="Склад у дома"><StorageArt/></div>;
   if (kind === 'house') {
     const receipt = state.basketReceipt;
-    return <div className="map-item house-item" role="img" aria-label={`Дом. Яблоки: ${state.apples}. Ягоды: ${state.trade.berries}.`} style={base}>
+    const canOpen = state.trade.permit && !mode;
+    const House = canOpen ? 'button' : 'div';
+    return <House className={`map-item house-item${canOpen ? ' house-entrance' : ''}`} style={base}
+      type={canOpen ? 'button' : undefined} role={canOpen ? undefined : 'img'}
+      aria-label={canOpen ? 'Дом. Открыть хозяйство' : `Дом. Яблоки: ${state.apples}. Ягоды: ${state.trade.berries}.`}
+      onClick={canOpen ? event => handlers.industry(event, item) : undefined}>
       <span key={receipt?.id} className={`house-motion${receipt ? ' receiving' : ''}`}><HouseArt/></span>
       {receipt?.amount > 0 && <span key={`receipt-${receipt.id}`} className="basket-gain" aria-hidden="true"><Glyph name="apple"/>+{number.format(receipt.amount)}</span>}
       {receipt?.berries > 0 && <span key={`berry-receipt-${receipt.id}`} className="basket-gain" aria-hidden="true"><Glyph name="berry"/>+{number.format(receipt.berries)}</span>}
-      <span className="basket-label">Дом</span>
-    </div>;
+      <span className="basket-label">{canOpen ? icon('table', 'Хозяйство') : 'Дом'}</span>
+    </House>;
   }
   if (kind === 'manual') return <div className="map-item manual-carrier" style={base} role="img" aria-label="Корзина направляется к дому"><BasketArt level={item.level}/></div>;
   const job = state.jobs.find(task => task.workers.includes(item.id));
@@ -189,6 +185,24 @@ function MapSprite({ item, state, handlers, tap, mode, selected }) {
   </button>{selected && <span className="worker-marker" style={{ ...xy(item), zIndex: WORLD.height + 5, '--offset': `${offset}px` }} aria-hidden="true"><WorkerMarker/></span>}</>;
 }
 
+const PlantSprite = memo(function PlantSprite({ id, x, y, variety, fruit, dry, grafted, clearing, animation, onTree }) {
+  const position = { left: x, top: y, zIndex: Math.round(y - WORLD.y) };
+  const name = VARIETIES[variety].label;
+  const click = event => onTree(event, id);
+  if (isFieldCrop(variety)) {
+    const label = dry ? `Полить: ${name}` : fruit ? `Собрать: ${name} ×${fruit}` : `${name} · растёт`;
+    return <button type="button" className={`map-item berry-item${dry ? ' dry' : ''}`} style={position} aria-label={label} onClick={click}>
+      {variety === 'wheat' ? <WheatArt ripe={fruit > 0} dry={dry}/> : <BerryBushArt fruit={fruit} drying={dry} watered={!fruit && !dry}/>}
+      {dry && <span className="fruit-label berry"><Glyph name="water"/></span>}
+    </button>;
+  }
+  const label = clearing ? `Срубить дерево. ${name}` : `${name}, яблок: ${fruit}`;
+  return <button type="button" className={`map-item tree-item${fruit ? ' ripe' : ''}`}
+    style={{ ...position, '--wind-delay': `-${id % 19 * 5}s` }} aria-label={label} onClick={click}>
+    <span key={animation} className={`tree-motion${animation ? ' touched' : ''}`}><AppleTree fruit={fruit} variety={variety} grafted={grafted}/></span>
+  </button>;
+});
+
 function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selectedWorkerId, focusPoint, onPoint, onTree, onWorker, onFlower, onBasket, onSprinkler, onMarket, onWater, onWild, onIndustry, roadStart }) {
   const [hover, setHover] = useState(null);
   const [tap, setTap] = useState(null);
@@ -201,11 +215,20 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const viewport = panorama.surface.ref;
   useEffect(() => { if (focusPoint) focus(focusPoint); }, [focusPoint, focus]);
   useEffect(() => { if (mode === 'assign') viewport.current?.focus({ preventScroll: true }); }, [mode, viewport]);
+  const treeInput = useRef(null);
+  useLayoutEffect(() => {
+    treeInput.current = { state, onTree, dragged: panorama.dragged };
+  });
+  const interactWithPlant = useCallback((event, id) => {
+    const latest = treeInput.current;
+    if (latest.dragged(event)) return;
+    const tree = latest.state.trees.find(tree => tree.id === id);
+    if (!tree) return;
+    setTap({ id, at: latest.state.time, serial: ++tapId.current });
+    latest.onTree(tree);
+  }, []);
   const guard = handler => (event, item) => { if (!panorama.dragged(event)) handler(item); };
-  const handlers = { tree: guard(tree => {
-    setTap({ id: tree.id, at: state.time, serial: ++tapId.current });
-    onTree(tree);
-  }), flower: guard(onFlower), basket: guard(onBasket), worker: guard(onWorker), sprinkler: guard(onSprinkler), market: guard(onMarket), water: guard(onWater), wild: guard(onWild), industry: guard(onIndustry) };
+  const handlers = { flower: guard(onFlower), basket: guard(onBasket), worker: guard(onWorker), sprinkler: guard(onSprinkler), market: guard(onMarket), water: guard(onWater), wild: guard(onWild), industry: guard(onIndustry) };
   const orchardsById = Object.fromEntries(state.orchards.map(orchard => [orchard.id, orchard]));
   const waterPoints = new Map();
   for (const orchard of state.orchards) {
@@ -216,6 +239,14 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
     if (!waterPoints.has(id) || orchard.id === orchardId) waterPoints.set(id, { x, y, id, kind: 'water', orchardId: orchard.id });
   }
   const driving = new Set(state.industry.tractors.map(tractor => tractor.trip?.driverId));
+  // Leave room for tall sprites and movements that cross a viewport edge between ticks.
+  const camera = panorama.centerPoint;
+  const halfWidth = panorama.viewSize.width / (2 * panorama.zoom) + 240;
+  const halfHeight = panorama.viewSize.height / (2 * panorama.zoom) + 240;
+  const onScreen = point => Math.abs(point.x - camera.x) <= halfWidth && Math.abs(point.y - camera.y) <= halfHeight;
+  const plants = state.trees.filter(onScreen);
+  const apples = plants.filter(tree => !isFieldCrop(tree.variety));
+  const fertilized = state.upgrades.includes('crop');
   const things = [
     ...COAL_SITES.flatMap((peak, index) => state.industry.mines.some(mine => distance(peak, mine) < 1) ? [] : [
       { ...peak, id: `mountain-${index}`, kind: 'mountain' },
@@ -225,17 +256,11 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
     ...state.trade.stalls.flatMap(stall => stall.customers.map(customer => ({ ...customer, kind:'customer', person:customer.kind, id:`customer-${customer.id}` }))),
     ...state.trade.wild.map(patch => ({ ...patch, kind:'wild' })),
     ...waterPoints.values(),
-    ...state.trees.flatMap(tree => {
-      if (isFieldCrop(tree.variety)) return [{...tree,kind:'berries'}];
-      const orchard = orchardsById[tree.orchardId];
-      const grafted = state.upgrades.includes('grafting') && tree.variety !== 'red'
-        || orchard?.specialtyLevel > 0 && (orchard.id === EAST_ORCHARD && tree.variety === 'gold' || orchard.id === START_ORCHARD && tree.variety === 'red');
-      const sprites = [{ ...tree, kind: 'tree', grafted }];
-      if (orchard?.compostLevel > 0) sprites.push({ ...tree, id: `compost-${tree.id}`, kind: 'compost', level: orchard.compostLevel });
-      return sprites;
-    }), ...state.flowers.map(item => ({ ...item, kind: 'flower' })),
-    ...state.trees.filter(item => !isFieldCrop(item.variety) && (state.upgrades.includes('crop') || state.trade.orchardPerks[item.orchardId]?.mulch))
-      .map(item => ({ ...item, id: `soil-${item.id}`, kind: 'soil' })),
+    ...state.flowers.map(item => ({ ...item, kind: 'flower' })),
+    ...apples.filter(tree => orchardsById[tree.orchardId]?.compostLevel > 0)
+      .map(tree => ({ ...tree, id: `compost-${tree.id}`, kind: 'compost', level: orchardsById[tree.orchardId].compostLevel })),
+    ...apples.filter(tree => fertilized || state.trade.orchardPerks[tree.orchardId]?.mulch)
+      .map(tree => ({ ...tree, id: `soil-${tree.id}`, kind: 'soil' })),
     ...state.orchards.flatMap(orchard => orchardBeds(state, orchard).map((bed, index) => ({ ...bed, id: `bed-${orchard.id}-${index}`, kind: 'bed' }))),
     ...state.orchards.map(orchard => ({ ...orchard.basket, id: `basket-${orchard.id}`, orchard, kind: 'basket' })),
     ...state.orchards.filter(orchard => orchard.loadingLevel > 0 || state.trade.orchardPerks[orchard.id]?.depot).map(orchard => {
@@ -312,7 +337,17 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
           </div>;
         })}
         {ghost && placingSprinkler && <div className={`sprinkler-range ${valid ? 'allowed' : ''}`} style={{ ...xy(hover), width: SPRINKLER_RADIUS * 2, height: SPRINKLER_RADIUS * 2 }} aria-hidden="true"/>}
-        {things.map(item => <MapSprite key={item.id} item={item} state={state} handlers={handlers} tap={tap} mode={mode} selected={item.id === selectedWorkerId}/>)}
+        {plants.map(tree => {
+          const orchard = orchardsById[tree.orchardId];
+          const grafted = state.upgrades.includes('grafting') && tree.variety !== 'red'
+            || orchard?.specialtyLevel > 0 && (orchard.id === EAST_ORCHARD && tree.variety === 'gold' || orchard.id === START_ORCHARD && tree.variety === 'red');
+          const pulse = tree.pulse && state.time - tree.pulse.at < 650 ? `pick-${tree.pulse.id}` : null;
+          const clicked = tap?.id === tree.id && state.time - tap.at < 650;
+          const animation = clicked && (!pulse || tap.at >= tree.pulse.at) ? `tap-${tap.serial}` : pulse;
+          return <PlantSprite key={tree.id} id={tree.id} x={tree.x} y={tree.y} variety={tree.variety} fruit={tree.fruit}
+            dry={tree.readyAt === null && !tree.fruit} grafted={Boolean(grafted)} clearing={mode === 'clear'} animation={animation} onTree={interactWithPlant}/>;
+        })}
+        {things.filter(onScreen).map(item => <MapSprite key={item.id} item={item} state={state} handlers={handlers} mode={mode} selected={item.id === selectedWorkerId}/>)}
         {ghost && mode === 'market' && <div className={`market-placement stall-placement plant-preview${site ? ' allowed' : ''}`} style={xy(hover)}><MarketStallArt/></div>}
         {ghost && placingLand && <div className={`market-placement farm-placement${site ? ' allowed' : ''}`} style={{ ...rect(site ?? landFootprint(hover)), '--condition': color }}/>}
         {ghost && tradePlacement && <span className="site-preview" style={{ ...xy(hover), '--condition': color }}>{!site ? 'Здесь нельзя строить'
@@ -636,7 +671,7 @@ function SaveTransfer({ state, onClose, onImport }) {
   </dialog>;
 }
 
-export function GameView({ state, dispatch, onImport }) {
+export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   const [wide, setWide] = useState(() => (globalThis.innerWidth ?? 1440) >= 800);
   const [partyOpen, setPartyOpen] = useState(wide);
   const [shopOpen, setShopOpen] = useState(wide);
@@ -652,7 +687,6 @@ export function GameView({ state, dispatch, onImport }) {
   const [focusPoint, setFocusPoint] = useState(null);
   const [industry, setIndustry] = useState(null);
   const [roadStart, setRoadStart] = useState(null);
-  const audio = useGameAudio(state);
   const [error, setError] = useState(null);
   const upgradeButton = useRef(null);
   const restoreShop = useRef(false);
@@ -883,10 +917,11 @@ export function GameView({ state, dispatch, onImport }) {
       onFlower={flower => dispatch('flower', { id: flower.id })} onWorker={inspect}
       onBasket={basketAction} onSprinkler={sprinklerAction}
       onMarket={item => { if (!mode) setMarketId(item.stallId); }}
-      onIndustry={site => { if (!mode) setIndustry(site.id); }}
+      onIndustry={site => { if (!mode) setIndustry(site.id === 'house' ? 'overview' : site.id); }}
       onWater={({ orchardId }) => { dispatch('refillCan', { orchardId }); setError(null); }}
       onWild={item => dispatch('pickWild', { id: item.id })}/>
     <div className="hud">
+      <button type="button" className="pixel-button square game-menu-toggle" aria-label="Главное меню" onClick={onMenu}><Glyph name="menu"/></button>
       <div className="resources pixel-window" aria-label="Ресурсы"><Hardware/>
         <div className="resource" aria-label={`Яблоки: ${state.apples}`}>{icon('apple', number.format(state.apples))}</div>
         {state.trade.permit && <Tooltip label="Монеты" tap><div className="resource trade-resource" tabIndex={0}>{icon('coin', number.format(state.trade.coins))}</div></Tooltip>}
@@ -899,7 +934,7 @@ export function GameView({ state, dispatch, onImport }) {
         </Tooltip>
       </div>
       <div className="hud-actions">
-        {state.trade.permit && <button type="button" className="pixel-button square industry-toggle" aria-label="Хозяйство" onClick={() => setIndustry('overview')}><Glyph name="table"/></button>}
+        {state.trade.permit && <button type="button" className="pixel-button industry-toggle" aria-label="Хозяйство" onClick={() => setIndustry('overview')}>{icon('table', 'Хозяйство')}</button>}
         <button type="button" className="pixel-button square" aria-pressed={audio.effects} aria-label="Звуки" onClick={audio.toggleEffects}><Glyph name="sound"/></button>
         <button type="button" className="pixel-button square" aria-pressed={audio.ambience} aria-label="Музыка и звуки природы" onClick={audio.toggleAmbience}><Glyph name="note"/></button>
         {state.trade.stalls.length > 0 && <button type="button" className="pixel-button square trade-world-button" aria-label="Открыть торговую лавку"
@@ -951,12 +986,25 @@ export function GameView({ state, dispatch, onImport }) {
 }
 
 function App() {
-  const [state, dispatch, replace] = useGame();
+  const [screen, setScreen] = useState('launch');
+  const [state, dispatch, replace] = useGame(screen);
+  const audio = useGameAudio(state);
   const [revision, setRevision] = useState(0);
-  return <GameView key={revision} state={state} dispatch={dispatch} onImport={imported => {
-    replace(imported);
-    setRevision(current => current + 1);
-  }}/>;
+  const gameLayer = useRef(null);
+  const playing = screen === 'game';
+  useEffect(() => {
+    if (playing) gameLayer.current?.querySelector('.map-viewport')?.focus({ preventScroll: true });
+  }, [playing]);
+
+  return <>
+    {screen !== 'launch' && <div ref={gameLayer} className="game-layer" inert={!playing}>
+      <GameView key={revision} state={state} dispatch={dispatch} audio={audio} onMenu={() => setScreen('menu')} onImport={imported => {
+        replace(imported);
+        setRevision(current => current + 1);
+      }}/>
+    </div>}
+    {!playing && <MainMenu state={state} audio={audio} onPlay={() => setScreen('game')}/>}
+  </>;
 }
 
 if (typeof document !== 'undefined') createRoot(document.getElementById('root')).render(<App/>);

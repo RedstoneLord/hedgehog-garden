@@ -34,7 +34,8 @@ final class GitHubUpdates {
     private static final int MAX_RELEASE = 2 * 1024 * 1024;
     private static final long CHECK_INTERVAL = 30 * 60 * 1000L;
     private static final long RETRY_INTERVAL = 5 * 60 * 1000L;
-    private static final Pattern RELEASE_TAG = Pattern.compile("v?(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,2})\\.(0|[1-9][0-9]{0,2})");
+    private static final Pattern RELEASE_TAG = Pattern.compile("v?(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,2})\\.(0|[1-9][0-9]{0,2})(?:\\.([1-9][0-9]?))?");
+    private static final long LAST_LEGACY_ANDROID_CODE = 5002;
     private static final Pattern SHA256 = Pattern.compile("sha256:[0-9a-f]{64}");
 
     private final GardenActivity activity;
@@ -71,9 +72,12 @@ final class GitHubUpdates {
         int major = Integer.parseInt(match.group(1));
         int minor = Integer.parseInt(match.group(2));
         int patch = Integer.parseInt(match.group(3));
-        long code = major * 1_000_000L + minor * 1000 + patch;
+        long base = major * 1_000_000L + minor * 1000 + patch;
+        int hotfix = match.group(4) == null ? 0 : Integer.parseInt(match.group(4));
+        if (base == 0 || (hotfix != 0 && base < LAST_LEGACY_ANDROID_CODE)) return null;
+        long code = hotfix != 0 || base > LAST_LEGACY_ANDROID_CODE ? base * 100 + hotfix : base;
         if (code <= installed || code > 2_100_000_000L) return null;
-        String version = major + "." + minor + "." + patch;
+        String version = major + "." + minor + "." + patch + (hotfix == 0 ? "" : "." + hotfix);
         String filename = "hedgehog-garden-" + version + ".apk";
 
         JSONArray assets = result.optJSONArray("assets");

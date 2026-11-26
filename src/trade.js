@@ -6,13 +6,14 @@ import { regionAt, riverDistance, terrainKind, TRADE_GATES, TRADE_ROADS, WORLD }
 import { adjustStock, GOODS, incomingGoods, industryStations, PRODUCED_GOODS, stockCount } from './industry.js';
 import { demandScore, trafficLevel } from './siting.js';
 
-export const PERMIT_PRICE = 5000;
+export const PERMIT_PRICE = 2500;
 export const FARM_PRICE = 1000;
 const orchardBasePrice = 2000;
 const landPriceGrowth = 2.5;
 export const BERRY_OFFER_DELAY = 7 * 60_000;
-const firstVisitorDelay = 25_000;
-const visitorIntervals = { high: 48_000, medium: 68_000, low: 90_000 };
+const firstVisitorDelay = 14_000;
+const visitorIntervals = { high: 30_000, medium: 42_000, low: 55_000 };
+const visitorWait = stall => (visitorIntervals[stall.traffic] ?? visitorIntervals.low) / (1 + stall.levels.sign * .22);
 const visitorStride = 145;
 const ordinaryVisitors = Object.keys(CUSTOMERS).filter(id => !CUSTOMERS[id].unique && !CUSTOMERS[id].regular);
 export const MARKET_UPGRADES = {
@@ -244,8 +245,7 @@ export function advanceCustomers(state, seconds, random) {
     if (state.time >= stall.spawnAt && active < queueCapacity(stall)) {
       spawnCustomer(state,stall,random);
       stall.traffic = trafficLevel(demandScore(state, stall, stall.road, stall.id));
-      const wait = visitorIntervals[stall.traffic];
-      stall.spawnAt = state.time + wait / (1 + stall.levels.sign * .22);
+      stall.spawnAt = state.time + visitorWait(stall);
     }
   }
 }
@@ -259,7 +259,7 @@ function automaticDemand(state, stall, key, worker) {
   const incoming = state.jobs.filter(job => job.kind === 'restock' && job.stallId === stall.id && job.cargo?.key === key)
     .reduce((sum, job) => sum + job.cargo.amount, 0);
   const inHouse = stockCount(state,key) - (key === 'apples' ? stall.reserve : 0);
-  const capacity = 28 + worker.stats.strength * 8 + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0);
+  const capacity = 28 + worker.stats.strength * 8 + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
   return restockAmount(state,stall,key,Math.min(target - (stall.stock[key] ?? 0) - incoming - incomingGoods(state, `stall:${stall.id}`, key),inHouse,capacity));
 }
 function completeSale(state, stall, customer) {
@@ -361,7 +361,10 @@ export function migrateMarketProgress(state) {
     ...trade.uniqueSeen,
     ...trade.stalls.flatMap(stall => stall.customers.filter(customer => customer.phase !== 'walk').map(customer => customer.kind)),
   ])];
-  if (trade.firstStallAt !== undefined) return;
+  if (trade.firstStallAt !== undefined) {
+    for (const stall of trade.stalls) stall.spawnAt = Math.min(stall.spawnAt, state.time + visitorWait(stall));
+    return;
+  }
   trade.firstStallAt = trade.stalls.length ? state.time : null;
   for (const stall of trade.stalls) {
     stall.spawnAt = Math.max(stall.spawnAt, state.time + firstVisitorDelay);
@@ -676,7 +679,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
       if (!patch?.fruit) return true;
       const arrived = walk(patch);
       if (arrived !== true) return arrived === null;
-      job.amount = wildHarvest(state,patch,5 + worker.stats.foraging * 3);
+      job.amount = wildHarvest(state,patch,5 + worker.stats.foraging * 3 + (state.upgrades.includes('forestPockets') ? 4 : 0));
       job.phase = 'return';
       return false;
     }

@@ -77,11 +77,24 @@ function terrainAt(x, y) {
   return { kind, water, road, deck };
 }
 
+const terrainCodes = { ground: 1, road: 2, river: 3 };
+const terrainNames = ['', 'ground', 'road', 'river'];
+const terrainCache = new Uint8Array(TERRAIN_SIZE.width * TERRAIN_SIZE.height);
+
 export function terrainKind(point) {
   if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return 'ground';
-  const x = (Math.floor(point.x / PIXEL) + .5) * PIXEL;
-  const y = (Math.floor(point.y / PIXEL) + .5) * PIXEL;
-  return terrainAt(x, y).kind;
+  const col = Math.floor(point.x / PIXEL);
+  const row = Math.floor(point.y / PIXEL);
+  const x = col - WORLD.x / PIXEL;
+  const y = row - WORLD.y / PIXEL;
+  if (x < 0 || x >= TERRAIN_SIZE.width || y < 0 || y >= TERRAIN_SIZE.height) {
+    return terrainAt((col + .5) * PIXEL, (row + .5) * PIXEL).kind;
+  }
+  const index = y * TERRAIN_SIZE.width + x;
+  if (!terrainCache[index]) {
+    terrainCache[index] = terrainCodes[terrainAt((col + .5) * PIXEL, (row + .5) * PIXEL).kind];
+  }
+  return terrainNames[terrainCache[index]];
 }
 
 export function riverDistance(point) {

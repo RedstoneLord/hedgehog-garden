@@ -226,7 +226,7 @@ test('new upgrades change regrowth, crop, carry and the flower duration', () => 
 });
 
 test('new tree upgrades branch from their prerequisites and apply their bonuses', () => {
-  const base = { ...start(), xp: 500 };
+  const base = { ...start(), xp: 900 };
   const worker = base.workers[0];
   const initial = workerCharacteristics(base, worker);
   assert.equal(visibleUpgrades(base).includes('group3'), false);
@@ -243,7 +243,7 @@ test('new tree upgrades branch from their prerequisites and apply their bonuses'
   assert.equal(trained.detection, initial.detection + 45);
   const boosted = act(upgraded, 'flower', { id: upgraded.flowers[0].id });
   assert.ok(Math.abs(workerCharacteristics(boosted, boosted.workers[0]).speed / trained.speed - 1.7) < .0001);
-  assert.equal(upgraded.xp, 500 - [...branches, ...additions].reduce((total, id) => total + UPGRADES[id].cost, 0));
+  assert.equal(upgraded.xp, base.xp - [...branches, ...additions].reduce((total, id) => total + UPGRADES[id].cost, 0));
 });
 
 test('collaboration does not repeat the dialogue on the next trip', () => {
@@ -800,4 +800,28 @@ test('portable saves transfer game state and reject unrelated or incomplete JSON
   const migrated = importGame(JSON.stringify(legacy));
   assert.equal(migrated?.apples, state.apples);
   assert.equal(migrated?.workers[0].name, state.workers[0].name);
+});
+
+test('each paid hedgehog compounds the base hiring price by 25 percent before rounding', () => {
+  assert.equal(BALANCE.hireGrowth, 1.25);
+  assert.deepEqual([1, 2, 3, 4, 5].map(length => hirePrice({ workers: Array(length) })), [150, 188, 235, 293, 367]);
+});
+
+test('the new orchard upgrade has a steeper entry price and rewards a full harvest', () => {
+  const seed = start(39);
+  const tree = seed.trees[0];
+  const nextCost = UPGRADES.orchardStewards.cost;
+  const state = { ...seed, xp: nextCost - 1, upgrades: [...seed.upgrades, 'grafting'] };
+  assert.ok(nextCost > UPGRADES.grafting.cost);
+  assert.equal(upgradeStatus(state, 'orchardStewards'), 'pending');
+  assert.equal(act(state, 'upgrade', { id: 'orchardStewards' }), state);
+  const funded = { ...state, xp: nextCost };
+  const upgraded = act(funded, 'upgrade', { id: 'orchardStewards' });
+  assert.equal(upgraded.xp, 0);
+  assert.equal(upgradeStatus(upgraded, 'orchardStewards'), 'done');
+  assert.equal(advance(upgraded, tree.readyAt - state.time + 1).trees[0].fruit,
+    advance(funded, tree.readyAt - state.time + 1).trees[0].fruit + 2);
+  const reopened = restoreGame(JSON.stringify(upgraded));
+  assert.equal(upgradeStatus(reopened, 'orchardStewards'), 'done');
+  assert.equal(reopened.xp, 0);
 });

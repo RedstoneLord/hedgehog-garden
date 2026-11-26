@@ -54,6 +54,10 @@
   55% { transform: translate(calc(var(--dx) * .55), -4px); opacity: .95; }
   100% { transform: translate(var(--dx), 6px); opacity: 0; }
 }
+.industry-toggle { min-height: 44px; }
+@media (min-width: 800px) and (max-width: 1049px) {
+  .industry-toggle span { display: none; }
+}
 .mobile-dock { display: none; }
 @media (max-width: 799px) {
   .game-shell { --mobile-menu-bottom: calc(env(safe-area-inset-bottom) + 6px); }

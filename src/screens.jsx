@@ -38,8 +38,16 @@ const graph = {
   tractorGears: { x: 1080, y: 340, branch: 'work' },
   marketLedger: { x: 1070, y: 212, branch: 'work' },
   shiftPlanning: { x: 760, y: 663, branch: 'group' },
+  orchardStewards: { x: 481, y: 151, branch: 'garden' },
+  gardenCrew: { x: 63, y: 131, branch: 'garden' },
+  farmHarvest: { x: 678, y: 37, branch: 'garden' },
+  trailSatchels: { x: 930, y: 380, branch: 'work' },
+  packingLine: { x: 1284, y: 113, branch: 'work' },
+  coalKiln: { x: 1235, y: 256, branch: 'work' },
+  roadFreight: { x: 1230, y: 407, branch: 'work' },
+  forestPockets: { x: 236, y: 606, branch: 'flower' },
 };
-const graphWidth = 1230;
+const graphWidth = 1360;
 const graphHeight = 740;
 const graphBounds = { width: graphWidth + 260, height: graphHeight + 250 };
 const branches = { garden: 'Сад', work: 'Работа', group: 'Кучка', flower: 'Цветы' };

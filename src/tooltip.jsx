@@ -1,4 +1,4 @@
-import { cloneElement, createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from 'react';
+import { cloneElement, createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const TooltipContext = createContext(null);
@@ -11,7 +11,9 @@ export function TooltipProvider({ children }) {
       ? { ...current, label, detail } : current);
   }, []);
 
-  return <TooltipContext value={{ active: tip?.id, show: setTip, hide, update }}>
+  const active = tip?.id;
+  const tooltip = useMemo(() => ({ active, show: setTip, hide, update }), [active, hide, update]);
+  return <TooltipContext value={tooltip}>
     {children}
     {tip && createPortal(<TooltipBubble key={tip.id} tip={tip} hide={hide}/>, tip.anchor.closest('dialog') ?? document.body)}
   </TooltipContext>;

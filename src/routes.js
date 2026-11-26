@@ -8,6 +8,16 @@ const steps = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1,
 const surface = new Uint8Array(columns * rows);
 const edges = new Map();
 const cache = new Map();
+const roadAccess = new Map();
+const cellLinks = new Map();
+const CACHE_SIZE = 4096;
+const pointKey = ({ x, y }) => `${x},${y}`;
+
+function remember(cache, key, value) {
+  if (cache.size >= CACHE_SIZE) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
+  return value;
+}
 
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const cellPoint = id => ({ x: WORLD.x + ((id % columns) + .5) * CELL, y: WORLD.y + (Math.floor(id / columns) + .5) * CELL });
@@ -49,6 +59,8 @@ for (const path of TRADE_ROADS) {
 }
 
 function nearestRoad(point) {
+  const key = pointKey(point);
+  if (roadAccess.has(key)) return roadAccess.get(key);
   let nearest = null;
   let best = 540;
   for (const segment of roadSegments) {
@@ -61,7 +73,7 @@ function nearestRoad(point) {
     nearest = { entry, segment };
     best = gap;
   }
-  return nearest;
+  return remember(roadAccess, key, nearest);
 }
 
 function roadTrip(from, to, direct) {
@@ -152,6 +164,8 @@ function pop(queue) {
 }
 
 function connect(point) {
+  const key = pointKey(point);
+  if (cellLinks.has(key)) return cellLinks.get(key);
   const x = Math.floor((point.x - WORLD.x) / CELL);
   const y = Math.floor((point.y - WORLD.y) / CELL);
   const links = [];
@@ -162,7 +176,7 @@ function connect(point) {
     const cost = lineCost(point, cellPoint(id));
     if (Number.isFinite(cost)) links.push({ id, cost });
   }
-  return links;
+  return remember(cellLinks, key, links);
 }
 
 function compactRoute(from, points) {
@@ -184,16 +198,15 @@ function compactRoute(from, points) {
 
 function baseRoute(from, to) {
   if (!onMap(from) || !onMap(to) || terrainKind(from) === 'river' || terrainKind(to) === 'river') return null;
-  const key = `${from.x},${from.y}:${to.x},${to.y}`;
+  const key = `${pointKey(from)}:${pointKey(to)}`;
   if (cache.has(key)) return cache.get(key);
-  const direct = lineCost(from, to);
-  if (distance(from, to) < 72 && Number.isFinite(direct)) return { cost: direct, points: [to] };
-  const road = distance(from, to) >= 144 && roadTrip(from,to,direct);
-  if (road) {
-    if (cache.size >= 200) cache.delete(cache.keys().next().value);
-    cache.set(key,road);
-    return road;
+  const destination = { x: to.x, y: to.y };
+  const direct = lineCost(from, destination);
+  if (distance(from, destination) < 72 && Number.isFinite(direct)) {
+    return remember(cache, key, { cost: direct, points: [destination] });
   }
+  const road = distance(from, destination) >= 144 && roadTrip(from, destination, direct);
+  if (road) return remember(cache, key, road);
   const targets = new Map(connect(to).map(({ id, cost }) => [id, cost]));
   const pending = [];
   const scores = new Map();
@@ -228,13 +241,11 @@ function baseRoute(from, to) {
       push(pending, { id: next, cost: candidate, priority: candidate + estimate(next) });
     }
   }
-  if (!Number.isFinite(best)) return null;
-  const points = [to];
+  if (!Number.isFinite(best)) return remember(cache, key, null);
+  const points = [destination];
   for (let id = finish; id !== -1; id = parents.get(id)) points.push(cellPoint(id));
   const route = { cost: best, points: compactRoute(from, points.reverse()) };
-  if (cache.size >= 200) cache.delete(cache.keys().next().value);
-  cache.set(key, route);
-  return route;
+  return remember(cache, key, route);
 }
 
 function projectRoad(point, road) {

@@ -40,16 +40,8 @@ if (( $# > 1 )); then
   echo 'Usage: scripts/build-apk.sh [--init-key] [version]' >&2
   exit 1
 fi
-version="${1:-$(node -p 'require("./package.json").version')}"
-version_code=$(node - "$version" <<'NODE'
-const version = process.argv[2];
-if (!/^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.test(version)) process.exit(1);
-const [major, minor, patch] = version.split('.').map(Number);
-const code = major * 1_000_000 + minor * 1_000 + patch;
-if (code < 1 || code > 2_100_000_000) process.exit(1);
-process.stdout.write(String(code));
-NODE
-)
+version="${1:-$(node scripts/release-version.mjs version)}"
+version_code=$(node scripts/release-version.mjs code "$version")
 
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT

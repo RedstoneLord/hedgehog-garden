@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { releaseVersion } from './release-version.mjs';
 
 const buildDirectory = resolve('dist');
-const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+const version = releaseVersion();
 const output = resolve(process.argv[2] ?? resolve('versions', version, 'play.html'));
 await mkdir(dirname(output), { recursive: true });
 let html = await readFile(resolve(buildDirectory, 'index.html'), 'utf8');

@@ -114,6 +114,7 @@ const glyphs = {
   close: ['........','.Y....Y.','..Y..Y..','...YY...','...YY...','..Y..Y..','.Y....Y.','........'],
   edit: ['.....RR.','....RRWR','...YYRR.','..YYYT..','.YYYT...','.YYT....','.KT.....','K.......'],
   play: ['........','.Y......','.YYY....','.YYYYY..','.YYYYY..','.YYY....','.Y......','........'],
+  menu: ['........','YYYYYYYY','........','YYYYYYYY','........','YYYYYYYY','........','........'],
   minus: ['........','........','........','.YYYYYY.','.YYYYYY.','........','........','........'],
   plus: ['........','...YY...','...YY...','.YYYYYY.','.YYYYYY.','...YY...','...YY...','........'],
   center: ['...YY...','...YY...','........','YY.YY.YY','YY.YY.YY','........','...YY...','...YY...'],
@@ -391,11 +392,12 @@ export function FlowerArt({ variant }) {
   return <svg viewBox="0 0 12 11" aria-hidden="true"><Pixels paths={flowerPaths} palette={{P,H,Y:'#f8d989',G:'#4c7847',L:'#a6bc66'}}/></svg>;
 }
 
-export const TerrainPortrait = memo(function TerrainPortrait({ x, y }) {
+export const TerrainPortrait = memo(function TerrainPortrait({ x, y, cover = false }) {
   const size = 408;
   const left = Math.max(WORLD.x, Math.min(WORLD.x + WORLD.width - size, x - size / 2));
   const top = Math.max(WORLD.y, Math.min(WORLD.y + WORLD.height - size, y - size / 2));
-  return <svg className="portrait-terrain" viewBox={`${left} ${top} ${size} ${size}`} aria-hidden="true">
+  return <svg className="portrait-terrain" viewBox={`${left} ${top} ${size} ${size}`}
+    preserveAspectRatio={cover ? 'xMidYMid slice' : undefined} aria-hidden="true">
     <image href={landscape} x={WORLD.x} y={WORLD.y} width={WORLD.width} height={WORLD.height}/>
   </svg>;
 });

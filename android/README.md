@@ -15,7 +15,7 @@ Use `--init-key` once for a new app identity. Keep a secure backup of both the P
 
 ## Ship an update
 
-1. Increase the version in `package.json` and `package-lock.json`.
+1. Increase the version in `package.json` and `package-lock.json`. For a four-part version such as `0.5.2.1`, use npm version `0.5.2-hotfix.1`. Release scripts turn it into the four-part Android version and tag.
 2. Run `scripts/build-apk.sh` with the existing signing key. Add the signed APK and `RELEASE.md` under `versions/<version>/` to the release commit.
 3. Push the commit to `master`. GitHub Actions runs the tests, verifies the APK version and certificate, and publishes the version as the latest stable release on [GitHub](https://github.com/RedstoneLord/hedgehog-garden/releases). A push with an already published version runs the tests without replacing the release.
 4. Launch an earlier Android build with a save, let it download the update, and confirm installation. Open the updated app and confirm the saved garden loads.
@@ -23,3 +23,5 @@ Use `--init-key` once for a new app identity. Keep a secure backup of both the P
 GitHub Actions only receives the signed APK. The private signing key and its password stay in the ignored local signing directory.
 
 The app checks the latest stable release on foreground entry, at most once every 30 minutes per session. It downloads a newer matching APK, verifies its package name, Android version code, and signer, then offers to install. Android may request permission to install updates from this app and retains control of the install prompt.
+
+Android builds through 0.5.2 need one in-place manual update to 0.5.2.1 because their updater only recognizes three-part versions. The signing key and save storage are shared with the earlier builds.
