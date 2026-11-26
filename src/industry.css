@@ -1,0 +1,88 @@
+.industry-screen { background: #352c3b; color: #f8e6be; }
+.industry-body { width: min(1100px, 100%); margin: auto; padding: clamp(12px, 3vw, 30px); display: grid; gap: 12px; }
+.industry-tabs, .industry-buttons, .industry-ingredients { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.industry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 195px), 1fr)); gap: 12px; }
+.industry-panel { padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.industry-panel h3 { font-size: 20px; color: #ffe0a3; }
+.industry-panel p { color: #dfbf9b; line-height: 1.45; }
+.industry-art { display: grid; place-items: center; height: 110px; border: 1px solid #ad8867; background: linear-gradient(#516053 55%, #6b7150 55%); }
+.industry-art > svg, .industry-art > div { height: 90px; width: 140px; }
+.industry-station { display: grid; grid-template-columns: minmax(0, max-content) 1fr auto; gap: 9px; align-items: center; }
+.industry-station small, .industry-board small { color: #dcba91; }
+.industry-details { display: grid; gap: 9px; border-top: 1px solid #9f775f; padding-top: 9px; }
+.industry-recipe { max-width: 360px; }
+.industry-good { display: inline-flex; align-items: center; gap: 5px; }
+.industry-panel .shortage { color: #ffb79b; }
+.industry-stock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 8px; }
+.industry-stock .industry-good { border-bottom: 1px solid #936d60; padding: 6px 0; }
+.industry-board { display: grid; gap: 5px; }
+.industry-board .pixel-button { justify-content: space-between; gap: 10px; text-align: left; }
+.industry-board .pixel-button > span { display: flex; align-items: center; gap: 6px; }
+.industry-road-row { display: flex; align-items: center; gap: 6px; }
+.industry-item { width: 130px; border: 0; background: transparent; padding: 0; }
+.industry-item > svg, .industry-ghost > svg, .mountain-item > svg, .tractor-art > svg { width: 100%; display: block; }
+.industry-mine, .mountain-item { width: 192px; }
+.mountain-item { pointer-events: none; }
+.industry-house { width: 116px; }
+.industry-tractor { width: 87px; transition: left .09s linear, top .09s linear; }
+.tractor-art { position: relative; }
+.tractor-art.mirror { transform: scaleX(-1); }
+.tractor-driver { position: absolute; width: 38%; left: 51%; top: 4%; }
+.tractor-driver > svg { width: 100%; }
+.tractor-art > svg { position: relative; }
+.tractor-art.driving .tractor-wheel { animation: wheel-turn .8s steps(8, end) infinite; }
+@keyframes wheel-turn { to { transform: rotate(1turn); } }
+.workshop-smoke { opacity: 0; }
+.working-shop .workshop-smoke { animation: chimney-smoke 1.4s steps(5, end) infinite; }
+@keyframes chimney-smoke { 0% { opacity: .85; } 100% { opacity: 0; transform: translate(4px, -7px); } }
+.plant-preview.industry-ghost { width: 130px; z-index: 6500; }
+.built-roads { position: absolute; left: -1200px; top: -1272px; pointer-events: none; overflow: visible; }
+.built-roads line { stroke: #798055; stroke-width: 43; stroke-linecap: round; }
+.built-roads line + line { stroke: #bba174; stroke-width: 30; }
+.built-roads .paved-road line { stroke: #625c53; }
+.built-roads .paved-road line + line { stroke: #a49a84; stroke-dasharray: 22 5; }
+.built-roads .road-preview { stroke: #e4cc88; stroke-width: 17; stroke-dasharray: 20 12; }
+.placement-cells { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.placement-cell { position: absolute; width: 108px; height: 108px; opacity: .35; transform: translate(-50%, -50%); }
+.farm-placement.allowed { border-color: var(--condition); background: color-mix(in srgb, var(--condition) 28%, transparent); }
+.site-preview { border-color: var(--condition); z-index: 6501; font-size: 18px; }
+.orchard-bound .soil-alert { pointer-events: auto; position: absolute; top: 26px; left: 6px; padding: 2px 5px; color: #ffd89a; background: #694843; }
+.sprinkler-drop { animation: sprinkler-stream 1.15s steps(7,end) infinite; animation-delay: var(--delay); }
+@keyframes sprinkler-stream {
+  0% { transform: translate(0, 2px); opacity: 0; }
+  15% { opacity: 1; }
+  55% { transform: translate(calc(var(--dx) * .55), -4px); opacity: .95; }
+  100% { transform: translate(var(--dx), 6px); opacity: 0; }
+}
+.mobile-dock { display: none; }
+@media (max-width: 799px) {
+  .mobile-dock { display: flex; position: absolute; inset: auto 8px calc(env(safe-area-inset-bottom) + 6px); z-index: 35; gap: 4px; }
+  .mobile-dock button { flex: 1 1 0; padding: 5px 3px; min-width: 0; min-height: 42px; font-size: 11px; gap: 3px; }
+  .mobile-dock .glyph { width: 14px; height: 14px; }
+  .game-shell .side-window { --panel-max: calc(100dvh - 150px); }
+  .upgrade-toggle, .industry-toggle { display: none; }
+  .game-shell .status-wrap { bottom: 104px; }
+  .game-shell .guide-popup { bottom: 58px; }
+  
+  .industry-station { grid-template-columns: minmax(0, 1fr) auto; }
+  .industry-station small { grid-row: 2; }
+  .industry-board .pixel-button { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sprinkler-drop, .working-shop .workshop-smoke, .tractor-art.driving .tractor-wheel { animation: none; }
+}
+@media (max-width: 799px) {
+  .game-shell .camera-controls { bottom: 57px; }
+}
+ 
+.game-select { min-width: 0; }
+.game-select-toggle, .game-select-option { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 6px;
+  min-height: 31px; font: inherit; text-align: left; padding: 4px 7px; color: #ffe6b7; border: 1px solid #c09873; background: #3d2c42; }
+.game-select-options { max-height: 175px; overflow: auto; border: 2px solid #ae8762; background: #3d2c42; }
+.game-select-option { border: none; border-bottom: 1px solid #68505d; }
+.game-select-option:last-child { border-bottom: none; }
+.game-select-option[aria-selected="true"], .game-select-toggle[aria-expanded="true"] { background: #684654; }
+.game-select-option:hover:not(:disabled), .game-select-toggle:hover:not(:disabled) { background: #754e56; }
+.game-select :is(.game-select-toggle, .game-select-option):focus-visible { outline: 2px solid #ffdb8b; outline-offset: -2px; }
+.game-select :disabled { opacity: .55; }
+.market-reserve .game-select { width: 100%; }

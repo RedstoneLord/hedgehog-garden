@@ -1,0 +1,21 @@
+{
+  "name": "itmo-m3102-game",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test --test-isolation=none",
+    "release": "npm run terrain && npm run build && node scripts/standalone.mjs",
+    "terrain": "node scripts/terrain.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "vite": "8.1.0"
+  }
+}
