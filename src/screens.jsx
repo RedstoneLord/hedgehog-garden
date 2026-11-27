@@ -6,56 +6,24 @@ import { confine, zoomRange } from './camera.js';
 import { PanoramaControls, usePanorama } from './panorama.jsx';
 
 const number = new Intl.NumberFormat('ru-RU');
-const graph = {
-  root:   { x: 431, y: 303, branch: 'center' },
-  plot1:  { x: 280, y: 220, branch: 'garden' },
-  plot2:  { x: 122, y: 145, branch: 'garden' },
-  roots:  { x: 230, y: 104, branch: 'garden' },
-  clearing: { x: 132, y: 251, branch: 'garden' },
-  crop:   { x: 325, y:  43, branch: 'garden' },
-  pace:   { x: 570, y: 201, branch: 'work' },
-  carry:  { x: 733, y: 114, branch: 'work' },
-  group1: { x: 574, y: 392, branch: 'group' },
-  group2: { x: 736, y: 488, branch: 'group' },
-  flower: { x: 240, y: 458, branch: 'flower' },
-  paving: { x: 719, y: 226, branch: 'work' },
-  picking: { x: 104, y: 62, branch: 'garden' },
-  naps: { x: 605, y: 506, branch: 'group' },
-  pantry: { x: 803, y: 47, branch: 'work' },
-  grafting: { x: 419, y: 84, branch: 'garden' },
-  seedSatchel: { x: 53, y: 328, branch: 'garden' },
-  quickPacking: { x: 912, y: 52, branch: 'work' },
-  tradeCrates: { x: 934, y: 163, branch: 'work' },
-  longShift: { x: 618, y: 615, branch: 'group' },
-  group3: { x: 856, y: 564, branch: 'group' },
-  keenScent: { x: 145, y: 521, branch: 'flower' },
-  flowerPower: { x: 66, y: 612, branch: 'flower' },
-  berryBaskets: { x: 498, y: 36, branch: 'garden' },
-  farmWater: { x: 597, y: 50, branch: 'garden' },
-  batchCraft: { x: 1040, y: 53, branch: 'work' },
-  largerBatches: { x: 1150, y: 115, branch: 'work' },
-  efficientFuel: { x: 945, y: 274, branch: 'work' },
-  tractorGears: { x: 1080, y: 340, branch: 'work' },
-  marketLedger: { x: 1070, y: 212, branch: 'work' },
-  shiftPlanning: { x: 760, y: 663, branch: 'group' },
-  orchardStewards: { x: 481, y: 151, branch: 'garden' },
-  gardenCrew: { x: 63, y: 131, branch: 'garden' },
-  farmHarvest: { x: 678, y: 37, branch: 'garden' },
-  trailSatchels: { x: 930, y: 380, branch: 'work' },
-  packingLine: { x: 1284, y: 113, branch: 'work' },
-  coalKiln: { x: 1235, y: 256, branch: 'work' },
-  roadFreight: { x: 1230, y: 407, branch: 'work' },
-  heritageOrchard: { x: 365, y: 158, branch: 'garden' },
-  firstFarm: { x: 764, y: 24, branch: 'garden' },
-  freightHub: { x: 1375, y: 447, branch: 'work' },
-  trustedStall: { x: 1060, y: 492, branch: 'work' },
-  orchardTeams: { x: 898, y: 677, branch: 'group' },
-  furnaceCrew: { x: 1380, y: 161, branch: 'work' },
-  forestPockets: { x: 236, y: 606, branch: 'flower' },
-};
-const graphWidth = 1460;
-const graphHeight = 740;
-const graphBounds = { width: graphWidth + 260, height: graphHeight + 250 };
+const graphWidth = 1660;
+const graphHeight = 1280;
+const graphBounds = { width: graphWidth, height: graphHeight };
+const graph = { root: {x:830,y:90,branch:'center'} };
+const roots = { plot1:'garden', pace:'work', group1:'group', flower:'flower' };
+const columns = { garden:[40,535], work:[590,1110], group:[1140,1400], flower:[1430,1630] };
+const depths = new Map();
+for (const [key, upgrade] of Object.entries(UPGRADES)) {
+  const parent = upgrade.requires;
+  const branch = roots[key] ?? graph[parent].branch;
+  const depth = (depths.get(parent) ?? 0) + 1;
+  depths.set(key,depth);
+  const [min,max] = columns[branch];
+  const band = Object.keys(graph).filter(id => graph[id].branch === branch && depths.get(id) === depth);
+  graph[key] = {x:(min + max) / 2,y:90 + depth * 100,branch};
+  const row = [...band,key];
+  row.forEach((id,index) => { graph[id].x = min + (max-min) * (index+1)/(row.length+1); });
+}
 const branches = { garden: 'Сад', work: 'Работа', group: 'Кучка', flower: 'Цветы' };
 
 function initialTreeCamera(size) {
@@ -85,7 +53,7 @@ function TreeDiagram({ state, visible, selected, onSelect }) {
   const status = id => id === 'root' ? 'done' : upgradeStatus(state, id);
   return <div className="tree-canvas" style={{ width: graphWidth, height: graphHeight }} aria-label="Ветви дерева улучшений">
     <svg className="tree-wires" viewBox={`0 0 ${graphWidth} ${graphHeight}`} aria-hidden="true">
-      <path className="tree-grid-orbit" d="M431 54L743 303 431 527 116 303Z M431 113L656 303 431 477 198 303Z"/>
+
       {visible.map(id => {
         const item = UPGRADES[id];
         const from = graph[item.requires || 'root'];

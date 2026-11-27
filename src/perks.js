@@ -47,9 +47,46 @@ const byTier = [
 ];
 export const PERKS = Object.fromEntries(byTier.flatMap((entries, i) => entries.map(([id, name, desc, icon, effects]) =>
   [id, { name, desc, icon, tier: PERK_TIERS[i].id, effects }])));
-export const perkEffect = (worker, key, fallback = 0) => PERKS[worker.perk]?.effects[key] ?? fallback;
+const multipliers = new Set(['speed','rest','harvest','endurance','haul','drive','buy','research','wear']);
+export function perkEffect(worker, key, fallback = 0) {
+  const values = workerPerks(worker).map(id => PERKS[id]?.effects[key]).filter(value => value !== undefined);
+  if (!values.length) return fallback;
+  if (multipliers.has(key)) return values.reduce((total,value) => total * value,1);
+  if (key === 'glean') return Math.min(1, values.reduce((total,value) => total+value,0));
+  return values.reduce((total,value) => total+value,0);
+}
 export function rollPerk(roll, choice) {
   const tier = PERK_TIERS.find(item => (roll -= item.weight) < 0) ?? PERK_TIERS.at(-1);
   const entries = byTier[PERK_TIERS.indexOf(tier)];
   return entries[Math.floor(choice * entries.length)][0];
+}
+
+const uniqueJobs = {
+  harvest: ['orchardEye','Зоркий садовник','За поход берёт на два плода больше.','apple',{carry:2},.000065],
+  water: ['rainmaker','Дождевик','Поливает два дополнительных растения.','water',{extraWater:2},.00010],
+  forage: ['berryWhisperer','Ягодный след','Приносит восемь дополнительных диких ягод.','berry',{extraBerries:8},.00013],
+  scout: ['woodlandSense','Чутьё леса','Замечает цветы на 180 шагов дальше.','flower',{detect:180},.00035],
+  vendor: ['silverTongue','Серебряный язык','За лично обслуженный заказ получает на 12% больше монет.','coin',{sale:.12},.00017],
+  haul: ['bridgekeeper','Хранитель моста','Идёт с полной корзиной на 35% быстрее.','fastBasket',{haul:1.35},.00016],
+  restock: ['longHauler','Дальний рейс','Берёт на 18 товаров больше за рейс.','crate',{cargo:18},.00016],
+  driver: ['roadCaptain','Капитан дороги','Ведёт трактор на 25% быстрее.','fastBasket',{drive:1.25},.00018],
+  maker: ['batchMaster','Мастер партии','Добавляет одну единицу продукции в партию.','table',{batch:1},.00017],
+  buyer: ['sharpBuyer','Знаток торговли','Покупает банки на 15% дешевле.','coin',{buy:.85},.00031],
+  miner: ['stoneListener','Друг камня','Добывает по два дополнительных куска угля.','soil',{coal:2},.00018],
+  researcher: ['brightSpark','Живая искра','Зарабатывает ОИ на 30% быстрее.','speed',{research:1.3},.00022],
+  operator: ['steadyCurrent','Ровный ток','Генератор меньше изнашивается под его присмотром.','fuel',{wear:.55},.00036],
+};
+for (const [id,name,desc,icon,effects] of Object.values(uniqueJobs)) PERKS[id] = { name,desc,icon,effects,tier:'unique' };
+
+export const workerPerks = worker => worker.perks ?? (worker.perk && PERKS[worker.perk] ? [worker.perk] : []);
+export function uniqueWork(state, worker, job) {
+  const perk = uniqueJobs[job];
+  if (!worker || !perk || worker.pendingPerks?.includes(perk[0]) || workerPerks(worker).includes(perk[0])) return;
+  state.perkRandom = (Math.imul(state.perkRandom ?? state.random,1664525) + 1013904223) >>> 0;
+  if (state.perkRandom / 4294967296 >= perk[5]) return;
+  const [id] = perk;
+  const perks = workerPerks(worker);
+  if (perks.length < 3) worker.perks = [...perks,id];
+  else (worker.pendingPerks ??= []).push(id);
+  (state.perkReveals ??= []).push({ id:state.nextId++, workerId:worker.id, x:worker.x, y:worker.y, name:worker.name, perk:id });
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- The scientist’s 14-good commission and final 25,000-coin payment unlock research. Start with Electricity or Irrigation and earn research points from puzzles or a powered lab.
+- Added local power grids, three generator fuels, batteries, renewable generation, automated irrigation, and factory retrofits.
+- Added paid recruit rerolls, training, inheritance, wardrobe previews, retirement, job-specific Unique perks, and full workforce presets.
+- Added 16 general upgrades, 12 visitors including the scientist, product-specific lines, decorations, and minigames.
+- Reworked «Хозяйство» with a live estate map, power overview, and warehouse filters. Added main-menu reset and export, removed «Рейс» from basket badges, and adjusted the music and ambience mix.
+
+See the [0.7.0 release notes](versions/0.7.0/RELEASE.md).
+
 ## 0.6.0
 
 - Houses have separate inventories. The household screen shows each location and the total across houses. Existing shared stock migrates into the original house.

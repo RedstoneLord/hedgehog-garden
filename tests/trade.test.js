@@ -123,7 +123,7 @@ test('global coin upgrades apply across the map and persist separately from stal
 
 test('the larger roster yields distinct walking visitors before the first berry commission', () => {
   const common = Object.keys(CUSTOMERS).filter(id => !CUSTOMERS[id].regular && !CUSTOMERS[id].unique);
-  assert.equal(common.length, 14);
+  assert.equal(common.length, 25);
   assert.ok(common.every(id => looks[CUSTOMERS[id].look]));
   for (const [index, id] of common.entries()) {
     const state = withStall();

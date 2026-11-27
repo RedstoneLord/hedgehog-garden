@@ -1,3 +1,7 @@
+import { productLine } from './market-dialogue.js';
+import { perkEffect, uniqueWork } from './perks.js';
+import { advanceScientist, depositScientist, SCIENTIST_GOODS, scientistDemand, scientistStall, waitForScientistIntake } from './commission.js';
+import { decorationBonus } from './research.js';
 import { CUSTOMERS } from './customers.js';
 import { berryBounds, BERRY_ORCHARD, HOUSE, isBerryOrchard, isFieldCrop, isPurchasedGarden, makeOrchard, orchardById, orchardName, VARIETIES } from './orchard.js';
 import { distance, followRoute, routeTo } from './routes.js';
@@ -47,7 +51,7 @@ export function newTrade() {
 export const stallById = (state, id) => state.trade.stalls.find(stall => stall.id === id);
 export const marketStock = stall => goods.reduce((n, key) => n + (stall.stock[key] ?? 0), 0);
 export const stallCapacity = stall => 240 + stall.levels.shelves * 100;
-export const queueCapacity = stall => (stall.open ? 3 : 2) + stall.levels.queue * 2;
+export const queueCapacity = (stall, state) => (stall.open ? 3 : 2) + stall.levels.queue * 2 + Number(state?.upgrades.includes('queueSteward') ?? false);
 export const stallPrice = state => state.trade.stallCredits ? 0 : 850 * (state.trade.stalls.length + 1);
 export const marketUpgradePrice = (stall, key) => Math.ceil(MARKET_UPGRADES[key].base * 1.8 ** stall.levels[key]);
 export const globalUpgradeLevel = (state, key) => state.trade.globalUpgrades?.[key] ?? 0;
@@ -205,12 +209,7 @@ function spawnCustomer(state, stall, random) {
     const key = products[Math.floor(random(state) * products.length)];
     const amount = 3 + Math.floor(random(state) * 5);
     Object.assign(order, { apples: 0, berries: 0, [key]: amount, coins: 100 + amount * GOODS[key].value,
-      line: [
-        `Добрый день! На этот раз возьму вот что: ${GOODS[key].label.toLowerCase()}.`,
-        `У нас сегодня будут гости. Запишите в заказ: ${GOODS[key].label.toLowerCase()}.`,
-        `Хочется взять гостинец в дорогу. Подойдёт ${GOODS[key].label.toLowerCase()}.`,
-        `В прошлый раз наготовили на славу. Сегодня заказываю: ${GOODS[key].label.toLowerCase()}.`,
-      ][state.nextId % 4] });
+      line: productLine(key, kind, state.nextId) });
   }
   stall.customers.push({ id: state.nextId++, kind, ...TRADE_GATES[gate], gate, order, phase: 'walk',
     route: customerRoute(stall,gate) });
@@ -228,10 +227,11 @@ export function advanceCustomers(state, seconds, random) {
     if (patch.fruit === 0 && patch.readyAt <= state.time) patch.fruit = 14;
   }
   for (const stall of state.trade.stalls) {
+    const intake = waitForScientistIntake(state,stall) && !frontCustomer(stall);
     let queueSize = 0;
     stall.customers = stall.customers.filter(customer => {
       if (customer.phase === 'leave') return !followRoute(customer, customer.route, visitorStride, seconds);
-      if (customer.phase === 'walk' && followRoute(customer, customer.route, visitorStride, seconds)) {
+      if (customer.phase === 'walk' && !intake && followRoute(customer, customer.route, visitorStride, seconds)) {
         customer.phase = 'queue';
         if (!state.trade.visitorsSeen.includes(customer.kind)) state.trade.visitorsSeen.push(customer.kind);
         if (CUSTOMERS[customer.kind].unique) state.trade.uniqueSeen.push(customer.kind);
@@ -247,10 +247,11 @@ export function advanceCustomers(state, seconds, random) {
       return true;
     });
     const active = stall.customers.filter(customer => customer.phase !== 'leave').length;
-    if (state.time >= stall.spawnAt && active < queueCapacity(stall)) {
+    if (state.time >= stall.spawnAt && active < queueCapacity(stall,state)) {
       spawnCustomer(state,stall,random);
       stall.traffic = trafficLevel(demandScore(state, stall, stall.road, stall.id));
-      stall.spawnAt = state.time + visitorWait(stall);
+      const returning = state.upgrades.includes('returningGuests') && state.workers.some(worker => worker.stallId === stall.id && worker.workRole === 'vendor');
+      stall.spawnAt = state.time + visitorWait(stall) * (returning ? .95 : 1) / (1 + decorationBonus(state,stall,'market'));
     }
   }
 }
@@ -266,18 +267,20 @@ function automaticDemand(state, stall, key, worker) {
     .reduce((sum, job) => sum + job.cargo.amount, 0);
   const home = supplyHome(state, stall, key);
   const inHouse = home ? homeStock(state, home, key) - (key === 'apples' && !home.id ? stall.reserve : 0) : 0;
-  const capacity = 28 + worker.stats.strength * 8 + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
+  const capacity = 28 + worker.stats.strength * 8 + perkEffect(worker,'cargo') + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
   return restockAmount(state,stall,key,Math.min(target - (stall.stock[key] ?? 0) - incoming - incomingGoods(state, `stall:${stall.id}`, key),inHouse,capacity));
 }
-function completeSale(state, stall, customer) {
+function completeSale(state, stall, customer, worker) {
   if (frontCustomer(stall)?.id !== customer.id || !customer.order.accepted || !canServe(stall,customer.order)) return false;
   const items = orderLines(customer.order).map(({ key, quantity }) => ({ key, quantity }));
   for (const { key, quantity } of items) stall.stock[key] -= quantity;
-  const earned = orderPayment(state, stall, customer.order);
+  const earned = Math.floor(orderPayment(state, stall, customer.order) * (1 + (worker ? perkEffect(worker,'sale') : 0)));
+  uniqueWork(state,worker,'vendor');
   state.trade.coins += earned;
   state.trade.sales++;
   stall.recentSales = [{ id: customer.id, guest: customer.kind, items, earned }, ...(stall.recentSales ?? [])].slice(0, 5);
   leave(stall,customer);
+  advanceScientist(state,stall.id);
   note(state, `Заказ выполнен. +${earned} монет.`);
   if (state.trade.sales === 1) explain(state, 'firstSale', 'Первая продажа! Монеты можно потратить на полки, вывеску и место для очереди. Продавец-ёжик тоже сможет принимать заказы.');
   return true;
@@ -494,6 +497,7 @@ export const tradeActions = {
     if (!customer || customer.id !== customerId) return false;
     if (CUSTOMERS[customer.kind].unique) state.trade.uniqueSeen = state.trade.uniqueSeen.filter(kind => kind !== customer.kind);
     leave(stall,customer);
+    advanceScientist(state,stall.id);
     return true;
   },
   buyMarketUpgrade(state, { stallId, key }) {
@@ -598,7 +602,8 @@ export const tradeActions = {
   waterPlant(state,{id}) {
     const tree = state.trees.find(item => item.id === id && isFieldCrop(item.variety) && item.readyAt === null && !item.fruit);
     if (!tree || !state.trade.canWater) return false;
-    state.trade.canWater -= waterPlants(state,tree,state.trade.canWater);
+    const irrigated = waterPlants(state,tree,state.trade.canWater + Number(state.upgrades.includes('wateringTote')));
+    state.trade.canWater = Math.max(0,state.trade.canWater - irrigated);
     return true;
   },
   buyWaterCan(state) {
@@ -637,6 +642,16 @@ export const tradeActions = {
   },
 };
 
+function scientistJob(state, worker) {
+  const stall = state.scientist?.stage === 'accepted' && scientistStall(state);
+  if (!stall) return null;
+  if (worker.workRole === 'auto' && state.jobs.some(job => job.scientist && state.workers.some(other =>
+    other.id === job.workers[0] && other.workRole === 'auto'))) return null;
+  const key = Object.keys(SCIENTIST_GOODS).find(key => scientistDemand(state,key) && stockCount(state,key)
+    && !state.jobs.some(job => job.scientist && job.key === key && !job.cargo));
+  return key ? { scientist:true, kind:'restock', phase:'house', key, orchardId:worker.orchardId, workers:[worker.id] } : null;
+}
+
 export function scheduleCommission(state, worker) {
   if (worker.workRole !== 'auto') return null;
   for (const stall of state.trade.stalls) {
@@ -648,7 +663,7 @@ export function scheduleCommission(state, worker) {
     if (key) return { kind: 'restock', phase: 'house', key, stallId: stall.id,
       commissionId: customer.id, orchardId: worker.orchardId, workers: [worker.id] };
   }
-  return null;
+  return scientistJob(state,worker);
 }
 
 export function scheduleTrade(state, worker) {
@@ -664,7 +679,7 @@ export function scheduleTrade(state, worker) {
     if (target) return { ...job, phase: 'refill', treeId: target.id };
   }
   const stall = stallById(state,worker.stallId);
-  if (!stall) return null;
+  if (!stall) return worker.workRole === 'restock' ? scientistJob(state,worker) : null;
   if (worker.workRole === 'vendor') {
     const customer = frontCustomer(stall);
     const order = customer?.order;
@@ -679,6 +694,7 @@ export function scheduleTrade(state, worker) {
     for (const key of order) {
       if (automaticDemand(state,stall,key,worker) > 0) return { ...job, phase: 'house', key, stallId: stall.id };
     }
+    return scientistJob(state,worker);
   }
   return null;
 }
@@ -695,13 +711,14 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
       if (!patch?.fruit) return true;
       const arrived = walk(patch);
       if (arrived !== true) return arrived === null;
-      job.amount = wildHarvest(state,patch,5 + worker.stats.foraging * 3 + (state.upgrades.includes('forestPockets') ? 4 : 0));
+      job.amount = wildHarvest(state,patch,5 + worker.stats.foraging * 3 + perkEffect(worker,'extraBerries') + (state.upgrades.includes('forestPockets') ? 4 : 0) + (state.upgrades.includes('forestLining') ? 2 : 0));
       job.phase = 'return';
       return false;
     }
     const arrived = walk(house);
     if (arrived === false) return false;
     adjustStock(state, 'berries', job.amount, house);
+    uniqueWork(state,worker,'forage');
     note(state, `${worker.name} принёс дикие ягоды +${job.amount}.`, 'berry');
     return true;
   }
@@ -716,8 +733,33 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
     }
     const arrived = walk(target);
     if (arrived !== true) return arrived === null;
-    waterPlants(state,target,state.trade.largeCan ? 5 : 3);
+    waterPlants(state,target,(state.trade.largeCan ? 5 : 3) + perkEffect(worker,'extraWater'));
+    uniqueWork(state,worker,'water');
     return true;
+  }
+  if (job.scientist) {
+    const stall = scientistStall(state);
+    if (!stall || state.scientist?.stage !== 'accepted') {
+      if (job.cargo) adjustStock(state,job.key,job.cargo.amount,nearestHome(state,worker));
+      return true;
+    }
+    if (!job.cargo) {
+      const source = nearestHome(state,stall,job.key);
+      if (!source || !scientistDemand(state,job.key)) return true;
+      const arrived = walk(source);
+      if (arrived !== true) return arrived === null;
+      const amount = Math.min(scientistDemand(state,job.key),homeStock(state,source,job.key),28 + worker.stats.strength * 8);
+      if (!amount) return true;
+      adjustStock(state,job.key,-amount,source);
+      job.cargo = { key:job.key, amount };
+      job.phase = 'stall';
+    } else {
+      const arrived = walk(stall);
+      if (arrived === null) adjustStock(state,job.key,job.cargo.amount,nearestHome(state,worker));
+      if (arrived) { depositScientist(state,job.key,job.cargo.amount,stall); uniqueWork(state,worker,'restock'); }
+      return arrived !== false;
+    }
+    return false;
   }
   const stall = stallById(state,job.stallId);
   if (!stall) return true;
@@ -738,7 +780,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
     const arrived = walk(stall);
     if (arrived === false) return false;
     if (arrived === null) adjustStock(state,job.cargo.key,job.cargo.amount);
-    else stall.stock[job.cargo.key] = (stall.stock[job.cargo.key] ?? 0) + job.cargo.amount;
+    else { stall.stock[job.cargo.key] = (stall.stock[job.cargo.key] ?? 0) + job.cargo.amount; uniqueWork(state,worker,'restock'); }
     return true;
   }
   const customer = frontCustomer(stall);
@@ -749,6 +791,6 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
   job.until ??= state.time + Math.max(2500,11500 - worker.stats.handling * 720);
   if (state.time < job.until) return false;
   acceptCustomerOrder(state, customer);
-  if (canServe(stall,customer.order)) completeSale(state,stall,customer);
+  if (canServe(stall,customer.order)) completeSale(state,stall,customer,worker);
   return true;
 }

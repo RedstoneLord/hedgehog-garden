@@ -117,3 +117,12 @@
 .coal-debris i:nth-child(3) { animation-delay: -.45s; margin-left: -9px; }
 @keyframes station-work { to { transform: translateY(-2px); } }
 @keyframes coal-spark { to { transform: translate(17px, -22px); opacity: .15; } }
+
+.industry-screen { background: linear-gradient(#241d2be8,#241d2bf5), var(--estate-backdrop) center / cover fixed; }
+.industry-screen .market-header { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.industry-screen .market-header h2 { flex: 1 1 auto; }
+.industry-minimap { width:100%; height:min(42vh,375px); image-rendering:pixelated; display:block; background:#231c2b; border:2px solid #7f5a62; touch-action:none; cursor:grab; }
+.industry-minimap:active { cursor:grabbing; }
+.zone-key { width:10px; height:10px; display:inline-block; }
+.warehouse-panel small { color:#d4b5a5; }
+.industry-graphic { display:grid; place-items:center; background:#362d41; padding:8px; }

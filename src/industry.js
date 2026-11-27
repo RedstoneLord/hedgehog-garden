@@ -1,3 +1,6 @@
+import { perkEffect, uniqueWork } from './perks.js';
+import { depositScientist, SCIENTIST_GOODS, SCIENTIST_TARGET, scientistDemand, scientistStall } from './commission.js';
+import { fuelCapacity, hasResearch, researchSite, researchSites } from './research.js';
 import { HOUSE, takeReady } from './orchard.js';
 import { canWalkStraight, closestRoadSegment, distance, findRoute, findFreightRoute, followRoute, roadGap, routeTo } from './routes.js';
 import { roadDistance, terrainKind, WORLD } from './terrain.js';
@@ -17,6 +20,7 @@ export const COAL_SITES = [
 export const GOODS = {
   apples: { label: 'Яблоки', icon: 'apple' }, berries: { label: 'Ягоды', icon: 'berry' },
   wheat: { label: 'Пшеница', icon: 'wheat' }, flour: { label: 'Мука', icon: 'flour' },
+  biofuel: { label: 'Биотопливо', icon: 'flower' },
   coal: { label: 'Уголь', icon: 'soil' }, provisions: { label: 'Дорожный паёк', icon: 'bread' },
   jars: { label: 'Банки', icon: 'jar' }, fuel: { label: 'Топливо', icon: 'fuel' },
   slices: { label: 'Яблочные дольки', icon: 'apple', value: 7 },
@@ -30,6 +34,7 @@ export const GOODS = {
 };
 export const PRODUCED_GOODS = Object.keys(GOODS).filter(key => GOODS[key].value);
 export const RECIPES = {
+  biofuel: { needs:{ apples:16, berries:12 }, amount:6, ms:7200, level:1 },
   fuel: { needs: { coal: 3 }, amount: 4, ms: 4500, level: 1 },
   provisions: { needs: { apples: 8, berries: 6 }, amount: 3, ms: 5500, level: 1 },
   slices: { needs: { apples: 12 }, amount: 6, ms: 5500, level: 1 },
@@ -42,7 +47,7 @@ export const RECIPES = {
   jam: { needs: { berries: 14, jars: 4 }, amount: 4, ms: 12_000, level: 2 },
   mixedJam: { needs: { apples: 9, berries: 9, jars: 4 }, amount: 4, ms: 15_000, level: 2 },
 };
-export const INDUSTRY_ROLES = ['maker', 'buyer', 'miner', 'driver', 'porter'];
+export const INDUSTRY_ROLES = ['maker', 'buyer', 'miner', 'driver', 'porter', 'researcher', 'operator'];
 const buildingGroups = { workshop: 'workshops', mine: 'mines', house: 'houses', tractor: 'tractors' };
 
 export function newIndustry() {
@@ -96,7 +101,7 @@ export const STATION_UPGRADES = {
   efficiency: { label: 'Экономная топка', cost: 1800 },
 };
 const tuning = (site, key) => site.improvements?.[key] ?? 0;
-export const stationCapacity = site => 48 + 32 * tuning(site, 'buffer');
+export const stationCapacity = (site,state) => 48 + 32 * tuning(site, 'buffer') + (state && hasResearch(state,'modular') ? 32 : 0);
 export const stationUpgradePrice = (site, key) => STATION_UPGRADES[key].cost * (1 + tuning(site, key));
 export const factoryReady = shop => shop.level === 2 && ['speed','yield','buffer'].every(key => tuning(shop, key) > 0);
 
@@ -147,9 +152,9 @@ function notify(state, text, symbol) {
 }
 
 export function canCraft(state, shop, key, manual = false) {
-  if (!shop || shop.kind !== 'workshop' || shop.batch || !Object.hasOwn(RECIPES, key)) return false;
+  if (!shop || shop.kind !== 'workshop' || shop.batch || !Object.hasOwn(RECIPES, key) || key === 'biofuel' && !hasResearch(state,key)) return false;
   const recipe = RECIPES[key];
-  return shop.level >= recipe.level && Object.values(shop.output).reduce((sum, qty) => sum + qty, 0) + recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches')) + Number(key === 'fuel' && state.upgrades.includes('efficientFuel')) <= stationCapacity(shop)
+  return shop.level >= recipe.level && Object.values(shop.output).reduce((sum, qty) => sum + qty, 0) + recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches')) + Number(key === 'fuel' && state.upgrades.includes('efficientFuel')) <= stationCapacity(shop,state)
     && Object.entries(recipe.needs).every(([item, qty]) => {
       const missing = qty - (shop.inputs[item] ?? 0);
       const home = manual && missing > 0 && nearestHome(state, shop, item);
@@ -159,9 +164,9 @@ export function canCraft(state, shop, key, manual = false) {
 }
 function startBatch(state, shop, key, method) {
   const manual = method === 'manual';
-  const needsFuel = method === 'factory' && key !== 'fuel'
+  const needsFuel = method === 'factory' && !shop.electric && key !== 'fuel'
     && (!tuning(shop, 'efficiency') || !shop.fuelCoast);
-  if (!canCraft(state, shop, key, manual) || (needsFuel && !shop.inputs.fuel)) return false;
+  if (!canCraft(state, shop, key, manual) || method === 'factory' && shop.electric && !shop.power || (needsFuel && !shop.inputs.fuel)) return false;
   const recipe = RECIPES[key];
   for (const [item, qty] of Object.entries(recipe.needs)) {
     const local = Math.min(qty, shop.inputs[item] ?? 0);
@@ -171,7 +176,7 @@ function startBatch(state, shop, key, method) {
   if (needsFuel) shop.inputs.fuel--;
   if (method === 'factory' && key !== 'fuel') shop.fuelCoast = needsFuel;
   const speed = (method === 'factory' ? 2 : method === 'worker' ? 1.18 : 1) *
-    (1 + .25 * tuning(shop, 'speed')) * (state.upgrades.includes('batchCraft') ? 1.25 : 1) *
+    (1 + .25 * tuning(shop, 'speed')) * (method === 'factory' && hasResearch(state,'factoryEfficiency') ? 1.15 : 1) * (state.upgrades.includes('batchCraft') ? 1.25 : 1) *
     (state.upgrades.includes('packingLine') ? 1.25 : 1) * (state.upgrades.includes('furnaceCrew') ? 1.15 : 1) * (key === 'fuel' && state.upgrades.includes('coalKiln') ? 1.5 : 1);
   const amount = recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches'))
     + Number(key === 'fuel' && state.upgrades.includes('efficientFuel'));
@@ -251,7 +256,7 @@ export const industryActions = {
   },
   chooseRecipe(state, { id, key }) {
     const shop = industrySite(state, id);
-    if (shop?.kind !== 'workshop' || !Object.hasOwn(RECIPES, key) || RECIPES[key].level > shop.level || shop.recipe === key) return false;
+    if (shop?.kind !== 'workshop' || !Object.hasOwn(RECIPES, key) || RECIPES[key].level > shop.level || shop.recipe === key || key === 'biofuel' && !hasResearch(state,key)) return false;
     shop.recipe = key;
     return true;
   },
@@ -298,7 +303,7 @@ export const industryActions = {
   mineCoal(state, { id }) {
     const mine = industrySite(state, id);
     const amount = 6 + 2 * tuning(mine ?? {}, 'yield');
-    if (mine?.kind !== 'mine' || mine.coal + amount > stationCapacity(mine) || mine.mineAt) return false;
+    if (mine?.kind !== 'mine' || mine.coal + amount > stationCapacity(mine,state) || mine.mineAt) return false;
     mine.mineAt = state.time + 7500 / (1 + .25 * tuning(mine, 'speed'));
     return true;
   },
@@ -351,15 +356,32 @@ function budget(state, store, key) {
 function chooseDelivery(state, tractor) {
   const options = [];
   const trailer = state.upgrades.includes('roadFreight');
-  const cargoLimit = (trailer ? 64 : 48) + (state.upgrades.includes('freightHub') ? 16 : 0);
+  const cargoLimit = (trailer ? 64 : 48) + (state.upgrades.includes('freightHub') ? 16 : 0) + (hasResearch(state,'freight') ? 10 : 0);
   const platforms = homesFor(state);
+  const limitFor = item => cargoLimit + (item === 'fuel' && state.upgrades.includes('fuelCrates') ? 4 : 0);
 
   const offer = (from, to, amount, priority, item, source, destination) => {
     if (amount > 0 && !state.industry.paused[source] && !state.industry.paused[destination]
       && !state.industry.tractors.some(({ trip }) => trip?.source === source && trip.item === item && !trip.loaded)) {
-      options.push({ from, toPoint: to, item, source, to: destination, amount: Math.min(cargoLimit, amount), priority: priority * (state.industry.priority[destination] ?? 1) });
+      options.push({ from, toPoint: to, item, source, to: destination, amount: Math.min(limitFor(item), amount), priority: priority * (state.industry.priority[destination] ?? 1) });
     }
   };
+  const meeting = state.scientist?.stage === 'accepted' && scientistStall(state);
+  if (meeting) for (const item of Object.keys(SCIENTIST_GOODS)) {
+    const need = scientistDemand(state,item);
+    if (!need) continue;
+    for (const home of platforms) offer(home, meeting, Math.min(homeStock(state,home,item), need), 6, item, homeId(home), SCIENTIST_TARGET);
+    for (const shop of state.industry.workshops) offer(shop, meeting, Math.min(shop.output[item] ?? 0, need), 6, item, shop.id, SCIENTIST_TARGET);
+    if (item === 'coal' || item === 'fuel') for (const mine of state.industry.mines) offer(mine, meeting, Math.min(mine[item], need), 6, item, mine.id, SCIENTIST_TARGET);
+  }
+  for (const generator of researchSites(state).filter(site => site.kind === 'generator')) {
+    const key = generator.fuel;
+    const need = fuelCapacity(state) - (generator.stock[key] ?? 0) - incomingGoods(state,generator.id,key);
+    if (need <= 0) continue;
+    for (const home of platforms) offer(home, generator, Math.min(homeStock(state,home,key),need), 5, key, homeId(home),generator.id);
+    for (const shop of state.industry.workshops) offer(shop, generator, Math.min(shop.output[key] ?? 0,need),5,key,shop.id,generator.id);
+    if (key === 'coal') for (const mine of state.industry.mines) offer(mine,generator,Math.min(mine.coal,need),5,key,mine.id,generator.id);
+  }
   for (const orchard of state.orchards) {
     if (orchard.ready.length && !state.jobs.some(job => job.orchardId === orchard.id && job.kind === 'delivery' && ['toBasket', 'load'].includes(job.phase))) {
       offer(orchard.basket, nearestHome(state, orchard.basket), Math.min(trailer ? 4 : 3, orchard.ready.length), 1, 'basket', orchard.id, homeId(nearestHome(state, orchard.basket)));
@@ -378,7 +400,7 @@ function chooseDelivery(state, tractor) {
     }
     if (shop.automatic === false) continue;
     const inputs = { ...RECIPES[shop.recipe].needs };
-    if (shop.level === 3 && shop.recipe !== 'fuel') inputs.fuel = 2;
+    if (shop.level === 3 && !shop.electric && shop.recipe !== 'fuel') inputs.fuel = 2;
     for (const [item, qty] of Object.entries(inputs)) {
       const need = Math.max(0, qty * 2 - budget(state, shop, item));
       for (const home of platforms) offer(home, shop, Math.min(homeStock(state, home, item), need), 3, item, homeId(home), shop.id);
@@ -425,7 +447,7 @@ function chooseDelivery(state, tractor) {
     const source = industrySite(state, best.source);
     const stock = source?.kind === 'workshop' ? source.output[best.item] ?? 0
       : source?.kind === 'mine' ? source[best.item] : homeStock(state, source ?? HOUSE, best.item);
-    const space = Math.min(stock, cargoLimit) - best.amount;
+    const space = Math.min(stock, limitFor(best.item)) - best.amount;
     if (space <= 0) return best;
     for (const other of options) {
       if (other.source !== best.source || other.item !== best.item || other.to === best.to || other.to.startsWith('house')
@@ -478,7 +500,14 @@ function unloadTractor(state, trip, deposit, worker) {
   }
   const shop = state.industry.workshops.find(shop => shop.id === trip.to);
   const stall = state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
-  if (shop) shop.inputs[trip.item] = (shop.inputs[trip.item] ?? 0) + trip.amount;
+  const generator = researchSite(state,trip.to);
+  if (trip.to === SCIENTIST_TARGET) depositScientist(state,trip.item,trip.amount,worker ?? trip.toPoint);
+  else if (generator?.kind === 'generator') {
+    const accepted = Math.min(trip.amount,Math.max(0,fuelCapacity(state) - (generator.stock[trip.item] ?? 0)));
+    generator.stock[trip.item] = (generator.stock[trip.item] ?? 0) + accepted;
+    if (accepted < trip.amount) adjustStock(state,trip.item,trip.amount - accepted,nearestHome(state,generator));
+  }
+  else if (shop) shop.inputs[trip.item] = (shop.inputs[trip.item] ?? 0) + trip.amount;
   else if (stall) stall.stock[trip.item] = (stall.stock[trip.item] ?? 0) + trip.amount;
   else adjustStock(state, trip.item, trip.amount, homesFor(state).find(home => homeId(home) === trip.to) ?? HOUSE);
 }
@@ -502,6 +531,7 @@ function movePorter(state, site, worker, seconds, walk) {
       if (walk(site, worker, seconds)) {
         site.inputs[cargo.item] = (site.inputs[cargo.item] ?? 0) + cargo.amount;
         delete worker.industryCargo;
+        uniqueWork(state,worker,'restock');
       }
       return;
     }
@@ -509,6 +539,7 @@ function movePorter(state, site, worker, seconds, walk) {
     if (walk(home, worker, seconds)) {
       adjustStock(state, cargo.item, cargo.amount, home);
       delete worker.industryCargo;
+      uniqueWork(state,worker,'restock');
     }
     return;
   }
@@ -517,21 +548,21 @@ function movePorter(state, site, worker, seconds, walk) {
   const item = Object.keys(stock).find(key => stock[key] > 0 && !state.industry.tractors.some(({ trip }) => trip?.source === site.id && trip.item === key && !trip.loaded));
   if (item && walk(site, worker, seconds)) {
     const output = site.kind === 'mine' ? site : site.output;
-    const amount = Math.min(output[item], 12 + worker.stats.strength * 2);
+    const amount = Math.min(output[item], 12 + worker.stats.strength * 2 + (state.upgrades.includes('houseDispatch') ? 4 : 0));
     output[item] -= amount;
     worker.industryCargo = { item, amount, homeId: homeId(nearestHome(state, site)) };
     return;
   }
   if (site.kind !== 'workshop' || item || site.automatic === false) return;
   const needs = { ...RECIPES[site.recipe].needs };
-  if (site.level === 3 && site.recipe !== 'fuel') needs.fuel = 2;
+  if (site.level === 3 && !site.electric && site.recipe !== 'fuel') needs.fuel = 2;
   for (const [key, qty] of Object.entries(needs)) {
     const need = qty * 2 - budget(state, site, key);
     if (need <= 0) continue;
     const home = nearestHome(state, site, key);
     if (!home) continue;
     if (walk(home, worker, seconds)) {
-      const amount = Math.min(need, homeStock(state, home, key), 12 + worker.stats.strength * 2);
+      const amount = Math.min(need, homeStock(state, home, key), 12 + worker.stats.strength * 2 + (state.upgrades.includes('houseDispatch') ? 4 : 0));
       adjustStock(state, key, -amount, home);
       worker.industryCargo = { item: key, amount, siteId: site.id };
     }
@@ -543,8 +574,10 @@ export function advanceIndustry(state, seconds, deposit, plan) {
   if (!state.industry.unlocked) return;
   const walk = (site, worker, elapsed) => workerAt(state, site, worker, elapsed, plan);
   const available = (role, site) => state.workers.find(worker => worker.siteId === site && worker.workRole === role
-    && !state.jobs.some(job => job.workers.includes(worker.id)) && worker.sleepUntil === null && worker.stamina > 0);
+    && !state.jobs.some(job => job.workers.includes(worker.id)) && !worker.stayAt && !worker.pairing
+    && (!worker.retirePending && !worker.pendingAssignment || worker.industryCargo || worker.fuelCan) && worker.sleepUntil === null && worker.stamina > 0);
   for (const shop of state.industry.workshops) {
+    if (shop.electric && shop.batch?.method === 'factory') shop.batch.until += 1000 * seconds * (1 - (shop.power ?? 0));
     if (shop.batch?.until <= state.time) {
       const { key, method } = shop.batch;
       const amount = shop.batch.amount ?? RECIPES[key].amount + Number(state.upgrades.includes('largerBatches'));
@@ -552,6 +585,8 @@ export function advanceIndustry(state, seconds, deposit, plan) {
       if (GOODS[key].value && !state.industry.knownProducts.includes(key)) state.industry.knownProducts.push(key);
       if (method === 'manual') notify(state, `${GOODS[key].label} +${amount}.`, GOODS[key].icon);
       state.xpProgress += amount * 2;
+      const maker = state.workers.find(worker => worker.id === shop.batch.workerId);
+      uniqueWork(state,maker,'maker');
       shop.batch = null;
     }
     const buyer = available('buyer', shop.id);
@@ -559,7 +594,8 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     if (buyer && jarsNeeded && stockCount(state, 'jars') + (shop.inputs.jars ?? 0) < jarsNeeded
       && state.trade.coins >= 8 * JAR_PRICE && walk(nearestHome(state, shop), buyer, seconds)) {
       const home = nearestHome(state, shop);
-      state.trade.coins -= 8 * JAR_PRICE;
+      state.trade.coins -= Math.ceil(8 * JAR_PRICE * perkEffect(buyer,'buy',1));
+      uniqueWork(state,buyer,'buyer');
       adjustStock(state, 'jars', 8, home);
       buyer.stamina = Math.max(0, buyer.stamina - 5);
     }
@@ -569,6 +605,8 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     if (shop.batch || shop.automatic === false) continue;
     if (shop.level === 3) startBatch(state, shop, shop.recipe, 'factory');
     else if (maker && walk(shop, maker, seconds) && startBatch(state, shop, shop.recipe, 'worker')) {
+      shop.batch.workerId = maker.id;
+      shop.batch.amount += perkEffect(maker,'batch');
       maker.stamina = Math.max(0, maker.stamina - RECIPES[shop.recipe].ms / 1000);
     }
   }
@@ -576,11 +614,12 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     const miner = available('miner', mine.id);
     if (mine.mineAt && mine.mineAt <= state.time) {
       mine.mineAt = null;
-      mine.coal += 6 + 2 * tuning(mine, 'yield');
+      mine.coal += 6 + 2 * tuning(mine, 'yield') + (miner ? perkEffect(miner,'coal') : 0);
+      uniqueWork(state,miner,'miner');
     }
     const porter = available('porter', mine.id);
     if (porter) movePorter(state, mine, porter, seconds, walk);
-    if (miner && !mine.mineAt && mine.coal + 6 + 2 * tuning(mine, 'yield') <= stationCapacity(mine)
+    if (miner && !mine.mineAt && mine.coal + 6 + 2 * tuning(mine, 'yield') <= stationCapacity(mine,state)
       && walk(mine, miner, seconds) && industryActions.mineCoal(state, { id: mine.id })) {
       miner.stamina = Math.max(0, miner.stamina - 6);
     }
@@ -606,6 +645,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
         tractor.tank = (tractor.tank ?? 0) + driver.fuelCan;
         delete driver.fuelCan;
       }
+      if (driver.retirePending || driver.pendingAssignment) continue;
       const trip = chooseDelivery(state, tractor);
       if (!trip) {
         tractor.retryAt = state.time + 2000;
@@ -615,11 +655,13 @@ export function advanceIndustry(state, seconds, deposit, plan) {
       tractor.trip = { ...trip, driverId: driver.id };
     }
     const trip = tractor.trip;
-    const targetStall = state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
-    if (trip.to.startsWith('stall:') && !targetStall) {
-
-      trip.to = 'house';
-      trip.toPoint = { x: home.x, y: home.y };
+    const targetStall = trip.to === SCIENTIST_TARGET ? scientistStall(state)
+      : state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
+    if ((trip.to.startsWith('stall:') || trip.to === SCIENTIST_TARGET) && !targetStall) {
+      if (!trip.loaded) { tractor.trip = null; continue; }
+      const home = nearestHome(state,tractor);
+      trip.to = homeId(home);
+      trip.toPoint = { x:home.x, y:home.y };
     } else if (targetStall) trip.toPoint = { x: targetStall.x, y: targetStall.y };
     const sourcePlot = state.orchards.find(orchard => orchard.id === trip.source);
     if (sourcePlot) trip.from = { ...sourcePlot.basket };
@@ -635,7 +677,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
       trip.route = route;
     }
     const rider = state.workers.find(worker => worker.id === trip.driverId);
-    const arrived = followRoute(tractor, trip.route, state.upgrades.includes('tractorGears') ? 385 : 310, seconds, state.industry.roads);
+    const arrived = followRoute(tractor, trip.route, (state.upgrades.includes('tractorGears') ? 385 : 310) * (rider ? perkEffect(rider,'drive',1) : 1), seconds, state.industry.roads);
     if (rider) Object.assign(rider, { x: tractor.x, y: tractor.y, left: tractor.left });
     if (!arrived) continue;
     if (!trip.loaded && loadTractor(state, trip)) {
@@ -657,7 +699,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
         delete trip.nextDrop;
         continue;
       }
-      if (rider) rider.stamina = Math.max(0, rider.stamina - 5);
+      if (rider) { rider.stamina = Math.max(0, rider.stamina - 5); uniqueWork(state,rider,'driver'); }
     }
     tractor.trip = null;
   }

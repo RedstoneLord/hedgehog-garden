@@ -1,4 +1,7 @@
-import { PERK_TIERS } from './perks.js';
+import { researchUnlocked } from './commission.js';
+import { researchSite, stationLabel } from './research.js';
+import { ResearchStationArt } from './research-screen.jsx';
+import { PERK_TIERS, workerPerks } from './perks.js';
 import { GameSelect } from './game-select.jsx';
 import { industrySite } from './industry.js';
 import { IndustryArt } from './industry-art.jsx';
@@ -69,6 +72,8 @@ export function HedgeProfileHeader({ worker, onRename, onClose }) {
 }
 
 function habitat(state, worker) {
+  const technology = researchSite(state,worker.stayAt ?? worker.siteId);
+  if (technology) return { point:technology, label:stationLabel(technology), art:<ResearchStationArt kind={technology.kind}/> };
   const station = industrySite(state, worker.siteId);
   if (station) return { point: station, label: workplaces(state).find(place => place.id === station.id)?.label,
     art: <IndustryArt site={station}/> };
@@ -103,7 +108,7 @@ function WorkAssignment({ state, worker, dispatch, onAssign }) {
       <GameSelect label={<><Glyph name={place?.icon ?? 'pin'}/> Место работы</>} value={place?.id}
         onChange={place => dispatch('assignWorkplace', { id: worker.id, place })}
         options={places.map(item => ({ value: item.id, label: item.label,
-          disabled: item.kind === 'tractor' && state.workers.some(other => other.id !== worker.id && other.siteId === item.id) }))}/>
+          disabled: ['tractor','lab','generator'].includes(item.kind) && state.workers.some(other => other.id !== worker.id && other.siteId === item.id) }))}/>
       {state.orchards.length > 1 && <Tooltip label="Выбрать сад на карте"><button type="button" className="pixel-button mini square"
         aria-label="Выбрать сад на карте" onClick={onAssign}><Glyph name="map"/></button></Tooltip>}
     </div>
@@ -115,7 +120,8 @@ function WorkAssignment({ state, worker, dispatch, onAssign }) {
 
 export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
   const stats = workerCharacteristics(state, worker);
-  const perk = PERKS[worker.perk];
+  const perks = workerPerks(worker);
+  const [confirm, confirmRetirement] = useState(false);
   const { point, label, art } = habitat(state, worker);
   return <article className="profile-body" aria-label={`Профиль ёжика ${worker.name}`}>
     <figure className="profile-portrait">
@@ -143,10 +149,29 @@ export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
         </button>
       </Tooltip>)}
     </div>
-    {perk && <section className="profile-perk" aria-label="Перк">
-      <div className="perk-icon" data-perk={worker.perk}><Glyph name={perk.icon}/></div>
-      <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label} · {perk.desc}</p></div>
-    </section>}
+    {perks.map(key => {
+      const perk = PERKS[key];
+      return <section key={key} className="profile-perk" aria-label="Перк">
+        <div className="perk-icon" data-perk={key}><Glyph name={perk.icon}/></div>
+        <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label ?? 'Уникальный'} · {perk.desc}</p></div>
+      </section>;
+    })}
+    {worker.pendingPerks?.map(key => <section key={key} className="research-card">
+      <h3>Новый перк · {PERKS[key].name}</h3><p>{PERKS[key].desc}</p>
+      {(perks.length === 3 ? perks : [null]).map(replace => <button key={replace ?? 'empty'} type="button" className="pixel-button mini"
+        onClick={() => dispatch('replacePerk',{id:worker.id,earn:key,replace})}>{replace ? `Заменить «${PERKS[replace].name}»` : 'Добавить перк'}</button>)}
+    </section>)}
+    {worker.stayAt && !worker.train && <button className="pixel-button mini" type="button" onClick={() => dispatch('resumeWork',{id:worker.id})}>Вернуться к работе</button>}
     <WorkAssignment state={state} worker={worker} dispatch={dispatch} onAssign={onAssign}/>
+    {researchUnlocked(state) && <section className="profile-assignment">
+      {worker.retirePending ? <p>Заканчивает рейс перед отдыхом.</p> : confirm ? <>
+        <p>Ёжик освободит место после текущей работы. Вернуть его можно в течение 15 минут, если в доме есть место.</p>
+        <button type="button" className="pixel-button mini" disabled={Boolean(worker.train || worker.pairing)}
+          onClick={() => dispatch('retireWorker',{id:worker.id})}>Проводить в домик отдыха</button>
+        <button type="button" className="pixel-button mini" onClick={() => confirmRetirement(false)}>Отмена</button>
+      </> : <button type="button" className="pixel-button mini" disabled={Boolean(worker.train || worker.pairing)}
+        onClick={() => confirmRetirement(true)}>Отправить на отдых</button>}
+    </section>}
+
   </article>;
 }

@@ -1,3 +1,5 @@
+import { ScientistPanel } from './research-screen.jsx';
+import { scientistStall } from './commission.js';
 import { GameSelect } from './game-select.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph, HedgeSprite } from './art.jsx';
@@ -59,6 +61,7 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
     </header>
     {gallery ? <CustomerGallery seen={state.trade.visitorsSeen}/> : <div className="market-content">
       <div className="market-left">
+        {scientistStall(state)?.id === stall.id && <ScientistPanel state={state} stall={stall} dispatch={dispatch}/>}
         <section className="market-scene" aria-label="Прилавок">
           <MarketLandscape/>
           <div className="market-scene-stall"><MarketStallArt level={stall.levels.sign} levels={stall.levels} stock={stall.stock}/></div>
@@ -72,7 +75,7 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
           {!person && <p className="market-wait">У прилавка пока тихо</p>}
         </section>
         <div className="market-scene-footer">
-          <span>В очереди {queued}/{queueCapacity(stall)}{traveling > 0 ? ` · В пути ${traveling}` : ''}</span>
+          <span>В очереди {queued}/{queueCapacity(stall,state)}{traveling > 0 ? ` · В пути ${traveling}` : ''}</span>
           <span>{staffed ? 'За прилавком ёжик' : 'Прилавок открыт'}</span>
         </div>
         <section className="market-order pixel-window" aria-label="Заказ покупателя">

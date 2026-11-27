@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AppleTree, BasketArt, BedArt, CompostArt, CrateRackArt, FlowerArt, Glyph, HedgeSprite, HouseArt, LoadingTableArt, OrchardFence, OrchardPavers, SleepLetters, SoilArt, SprinklerArt, StorageArt, WorkerMarker, WorldBackdrop } from './art.jsx';
 import {
   act, advance, BALANCE, canMoveBasket, canPlaceSprinkler, canPlant, canSendBasket, constructionPlots, flowerActive, groupCapacity, GUIDE, hirePrice, loadGame,
-  importGame, newGame, nextLevelXp, orchardAt, orchardBeds, PERKS, plotBounds, potatoAvailable, productionRate, SAVE_KEY, seedPrice,
+  importGame, newGame, nextLevelXp, orchardAt, orchardBeds, PERKS, plotBounds, potatoAvailable, productionRate, rerollPrice, SAVE_KEY, seedPrice,
   workerWorkplace, workplaces, workRoleLabel, WORLD,
 } from './game.js';
 import { initialCamera } from './camera.js';
@@ -27,6 +27,9 @@ import { GameSelect } from './game-select.jsx';
 import { ProfileGlyph } from './profile-art.jsx';
 import { PERK_TIERS } from './perks.js';
 import { MainMenu } from './main-menu.jsx';
+import { LodgePanel, PerkReveal, ResearchScreen, ResearchStationArt } from './research-screen.jsx';
+import { scientistReady, scientistStall } from './commission.js';
+import { gridPlacement, hasResearch, powerNetworks, RESEARCH_BUILDINGS, researchBuildSite, researchSites, stationLabel } from './research.js';
 import './style.css';
 import './industry.css';
 
@@ -40,6 +43,7 @@ const DEBUG_FAST_FORWARD = false; // Enable for local testing at 6× simulation 
 const plantingVariety = { plant:'red', plantGold:'gold', plantForest:'forest', plantBerry:'berry', plantWheat:'wheat' };
 const landModes = ['garden', 'farm', 'moveFarm', 'moveGarden'];
 const buildKind = mode => mode?.startsWith('build:') ? mode.slice(6) : null;
+const researchKind = building => building?.startsWith('r-') ? building.slice(2) : null;
 const conditionColor = value => `hsl(${Math.round(108 * value)} 73% 52%)`;
 const plotWarning = rate => rate < .99
   ? `Рост ${Math.round(rate * 100)}%. Соседние участки истощают почву. Разнеси их дальше.`
@@ -117,9 +121,14 @@ function MapSprite({ item, state, handlers, mode, selected }) {
       <IndustryArt site={site} driver={driver} operator={state.workers.find(worker => worker.siteId === site.id && ['maker','miner'].includes(worker.workRole) && distance(worker, site) < 28)}/><span className="basket-label">{label} {site.number}</span>
     </button>;
   }
+  if (kind === 'research-site') return <button type="button" className="map-item industry-item research-item" style={base}
+    aria-label={`Открыть: ${stationLabel(item.site)}`} onClick={event => handlers.industry(event,item.site)}>
+    <ResearchStationArt kind={item.site.kind} active={item.site.power > 0}/><span className="basket-label">{stationLabel(item.site)}</span>
+  </button>;
   if (kind === 'stall') return <button type="button" className="map-item stall-item" style={base}
     aria-label={`Открыть лавку ${item.ordinal}`} onClick={event => handlers.market(event,item)}>
     <MarketStallArt level={item.levels.sign} levels={item.levels} stock={item.stock}/>
+    {item.scientist && <strong className="scientist-marker" aria-label="Учёный ждёт">!</strong>}
     <span className="basket-label">Лавка {item.ordinal}</span>
   </button>;
   if (kind === 'customer') {
@@ -146,10 +155,10 @@ function MapSprite({ item, state, handlers, mode, selected }) {
     const disabled = manual && !canSendBasket(state, orchard);
     const inTransit = state.jobs.some(job => job.orchardId === orchard.id && (job.kind === 'manual' || job.kind === 'delivery' && ['haul', 'unload'].includes(job.phase)));
     const progress = `${count}/${basketLimit(orchard)}`;
-    const status = ready ? disabled ? 'Занята' : 'Полная' : inTransit ? `${progress} · Рейс` : progress;
+    const status = ready ? disabled ? 'Занята' : 'Полная' : progress;
     const label = manual ? 'Отправить полную корзину к дому' : 'Переместить корзину';
     return <button type="button" className={`map-item basket-item${ready ? ' basket-ready' : ''}`} style={base} aria-disabled={disabled || undefined}
-      aria-label={`${label}. ${orchardName(orchard.id)}. ${status}`} onClick={event => { if (!disabled) handlers.basket(event, orchard); }}>
+      aria-label={`${label}. ${orchardName(orchard.id)}. ${status}${inTransit ? '. Корзина в пути' : ''}`} onClick={event => { if (!disabled) handlers.basket(event, orchard); }}>
       <span key={receipt?.id} className={`basket-motion${receipt ? ' receiving' : ''}`}><BasketArt level={orchard.basketLevel}/></span>
       {receipt && <span key={`receipt-${receipt.id}`} className="basket-gain" aria-hidden="true"><Glyph name={isBerryOrchard(orchard.id) ? 'berry' : 'apple'}/>+{receipt.amount}</span>}
       <span className="basket-label">{status}</span>
@@ -220,7 +229,7 @@ const PlantSprite = memo(function PlantSprite({ id, x, y, variety, fruit, dry, g
   </button>;
 });
 
-function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selectedWorkerId, focusPoint, onPoint, onTree, onWorker, onFlower, onBasket, onSprinkler, onMarket, onWater, onWild, onIndustry, roadStart }) {
+function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selectedWorkerId, focusPoint, onPoint, onTree, onWorker, onFlower, onBasket, onSprinkler, onMarket, onWater, onWild, onIndustry, roadStart, reveal }) {
   const [hover, setHover] = useState(null);
   const [tap, setTap] = useState(null);
   const tapId = useRef(0);
@@ -231,6 +240,16 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const { focus } = panorama;
   const viewport = panorama.surface.ref;
   useEffect(() => { if (focusPoint) focus(focusPoint); }, [focusPoint, focus]);
+  const beforeReveal = useRef(null);
+  useLayoutEffect(() => {
+    if (reveal && !beforeReveal.current) {
+      beforeReveal.current = panorama.centerPoint;
+      focus({ x:reveal.x, y:reveal.y, zoom:Math.max(.82,panorama.centerPoint.zoom) });
+    } else if (!reveal && beforeReveal.current) {
+      focus(beforeReveal.current);
+      beforeReveal.current = null;
+    }
+  }, [reveal, focus]);
   useEffect(() => { if (mode === 'assign') viewport.current?.focus({ preventScroll: true }); }, [mode, viewport]);
   const treeInput = useRef(null);
   useLayoutEffect(() => {
@@ -255,6 +274,8 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
     const id = `water-${x},${y}`;
     if (!waterPoints.has(id) || orchard.id === orchardId) waterPoints.set(id, { x, y, id, kind: 'water', orchardId: orchard.id });
   }
+  const accountStall = scientistStall(state);
+  const scientistWaiting = state.scientist?.stage === 'offered' || scientistReady(state);
   const driving = new Set(state.industry.tractors.map(tractor => tractor.trip?.driverId));
   // Leave room for tall sprites and movements that cross a viewport edge between ticks.
   const camera = panorama.centerPoint;
@@ -269,7 +290,8 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
       { ...peak, id: `mountain-${index}`, kind: 'mountain' },
     ]),
     ...industryStations(state).map(site => ({ ...site, site, kind: 'industry' })),
-    ...state.trade.stalls.map((stall,index) => ({ ...stall, kind:'stall', ordinal:index+1, stallId:stall.id, id:`stall-${stall.id}` })),
+    ...researchSites(state).map(site => ({ ...site, site, kind:'research-site' })),
+    ...state.trade.stalls.map((stall,index) => ({ ...stall, scientist: scientistWaiting && accountStall?.id === stall.id, kind:'stall', ordinal:index+1, stallId:stall.id, id:`stall-${stall.id}` })),
     ...state.trade.stalls.flatMap(stall => stall.customers.map(customer => ({ ...customer, kind:'customer', person:customer.kind, id:`customer-${customer.id}` }))),
     ...state.trade.wild.map(patch => ({ ...patch, kind:'wild' })),
     ...waterPoints.values(),
@@ -299,6 +321,9 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const planting = Boolean(variety);
   const placingLand = landModes.includes(mode);
   const building = buildKind(mode);
+  const researchBuilding = researchKind(building);
+  const researchPlacement = ghost && researchBuilding && researchBuildSite(state,researchBuilding,hover);
+  const gridPlan = researchPlacement && gridPlacement(state,researchBuilding,hover);
   const eligibleBuilding = building && Object.hasOwn(BUILDINGS, building);
   const activePlots = state.orchards.map(item => plotBounds(state, item.id));
   const previousPlot = mode === 'moveFarm' || mode === 'moveGarden' ? plotBounds(state, orchardId) : null;
@@ -329,7 +354,7 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
         onPoint(panorama.toWorld(event));
       }}
       onClick={event => { if (!panorama.dragged(event) && !event.target.closest('button')) onPoint(panorama.toWorld(event)); }}>
-      <div className="map-world" style={panorama.scene}>
+      <div className={`map-world${reveal ? ' reveal-camera' : ''}`} style={panorama.scene}>
         <WorldBackdrop/>
         <svg className="built-roads" width={WORLD.width} height={WORLD.height} viewBox={`${WORLD.x} ${WORLD.y} ${WORLD.width} ${WORLD.height}`} aria-hidden="true">
           <defs>
@@ -341,6 +366,11 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
           {state.industry.roads.map(road => <g key={road.id} className={road.level === 2 ? 'paved-road' : 'new-road'}>
             <line x1={road.from.x} x2={road.to.x} y1={road.from.y} y2={road.to.y}/><line x1={road.from.x} x2={road.to.x} y1={road.from.y} y2={road.to.y}/>
           </g>)}
+          {researchSites(state).length > 0 && powerNetworks(state).flatMap(net => net.links.map(([from,to]) =>
+            <line key={from.id + to.id} className="research-wire" x1={from.x} y1={from.y - 25} x2={to.x} y2={to.y - 25}/>))}
+          {gridPlan?.links.map(site => <line key={site.id} className="research-preview-wire" x1={site.x} y1={site.y - 25} x2={hover.x} y2={hover.y - 25}/>)}
+          {ghost && ['pole','generator','battery','wheel','turbine','pump','sign','square','shelter','lamp','lab'].includes(researchBuilding) &&
+            <circle className="research-range" cx={hover.x} cy={hover.y} r={researchBuilding === 'pump' ? hasResearch(state,'wideSpray') ? 215 : 155 : ['sign','square','lamp'].includes(researchBuilding) ? 265 : researchBuilding === 'shelter' ? 230 : gridPlan?.coverage ?? 290}/>}
           {roadStart && hover && <line className="road-preview" x1={roadStart.x} y1={roadStart.y} x2={hover.x} y2={hover.y}/>}
         </svg>
         {previewCells && <div className="placement-cells" aria-hidden="true">{previewCells}</div>}
@@ -375,6 +405,14 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
         {ghost && tradePlacement && <span className="site-preview" style={{ ...xy(hover), '--condition': color }}>{!site ? 'Здесь нельзя строить'
           : mode === 'market' ? `Спрос ${Math.round(rating * 100)}% · ${trafficLabel[site.traffic]}`
             : plotWarning(rating)}</span>}
+        {ghost && researchBuilding && <div className={`plant-preview industry-ghost ${researchPlacement ? 'allowed' : ''}`} style={xy(hover)}>
+          <ResearchStationArt kind={researchBuilding}/>
+        </div>}
+        {ghost && researchBuilding && <span className="site-preview research-placement-label" style={{...xy(hover),'--condition':researchPlacement ? '#afcc91' : '#eb9a7c'}}>
+          {!researchPlacement ? researchBuilding === 'wheel' ? 'Нужен свободный берег' : researchBuilding === 'turbine' ? 'Нужно открытое место' : 'Здесь нельзя строить'
+            : gridPlan ? `Мощность ${Math.round(gridPlan.supply)} / ${gridPlan.demand} · ${gridPlan.demand ? Math.min(100,Math.round(100 * gridPlan.supply/gridPlan.demand)) + '%' : 'нет нагрузки'} · Связей ${gridPlan.links.length}`
+            : ['sign','square'].includes(researchBuilding) ? 'Привлекает гостей · 265 шагов' : researchBuilding === 'shelter' ? 'Работа +4% · 230 шагов' : RESEARCH_BUILDINGS[researchBuilding][0]}
+        </span>}
         {ghost && eligibleBuilding && <div className={`plant-preview industry-ghost ${buildSite ? 'allowed' : ''}`} style={xy(buildSite ?? hover)}>
           <IndustryArt site={{ kind: building }}/></div>}
         {ghost && !tradePlacement && !building && mode !== 'assign' && mode !== 'clear' && <div className={`plant-preview ${valid ? 'allowed' : ''}${placingSprinkler ? ' sprinkler-preview' : planting ? ' tree-preview' : ''}`} style={{ ...xy(hover), zIndex: WORLD.height + 4 }} aria-hidden="true">
@@ -453,6 +491,8 @@ function Shop({ state, dispatch, mode, setMode, orchard, clearOrchard, sprinkler
     <button type="button" className="pixel-button shop-tool" aria-keyshortcuts="P" aria-pressed={mode === 'plant'} disabled={!state.seeds} onClick={() => setMode(mode === 'plant' ? null : 'plant')}>
       {icon('seed', mode === 'plant' ? 'Отменить посадку' : 'Посадить яблоню')}<kbd>P</kbd>
     </button>
+    {state.upgrades.includes('seedExchange') && <button type="button" className="pixel-button shop-tool" disabled={state.goldSeeds < 2}
+      onClick={() => dispatch('exchangeSeeds')}>{icon('seedSatchel','Обменять 2 янтарных на 3 обычных')}</button>}
     {state.goldDiscovered && <button type="button" className="pixel-button shop-tool gold-tool" aria-pressed={mode === 'plantGold'} disabled={!state.goldSeeds} onClick={() => setMode(mode === 'plantGold' ? null : 'plantGold')}>
       {icon('gold', mode === 'plantGold' ? 'Отменить посадку' : `Янтарный саженец ×${state.goldSeeds}`)}
     </button>}
@@ -570,6 +610,17 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
   const [crewName, setCrewName] = useState('');
   const [destination, setDestination] = useState(null);
   const [crewRole, setCrewRole] = useState(null);
+  const [search, setSearch] = useState('');
+  const [siteFilter, filterSite] = useState('all');
+  const [roleFilter, filterRole] = useState('all');
+  const [statusFilter, filterStatus] = useState('all');
+  const [apply, confirmApply] = useState(null);
+  const [renaming, renamePreset] = useState(null);
+  const roster = state.workers.filter(worker => (!search.trim() || worker.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+    && (siteFilter === 'all' || workerWorkplace(worker) === siteFilter) && (roleFilter === 'all' || worker.workRole === roleFilter)
+    && (statusFilter === 'all' || statusFilter === 'busy' && (worker.train || worker.pairing || worker.pendingAssignment)
+      || statusFilter === 'favorites' && state.favorites.includes(worker.id)));
+  const availableIds = roster.map(worker => worker.id);
   const target = places.find(place => place.id === destination) ?? places[0];
   const role = target.roles.includes(crewRole) ? crewRole : target.roles[0];
   const recruit = state.recruitOffer;
@@ -594,22 +645,42 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
       })}
     </div>
     <details className="crew-manager">
-      <summary>Команды</summary>
+      <summary>Управление и сохранённые назначения</summary>
       <div className="worker-options">
-        <div className="crew-selection">{state.workers.map(worker => <label key={worker.id}>
+        <label>Имя ёжика <input value={search} onChange={event => setSearch(event.target.value)}/></label>
+        <GameSelect label="Фильтр по месту" value={siteFilter} options={[{value:'all',label:'Все места'},...places.map(place => ({value:place.id,label:place.label}))]} onChange={filterSite}/>
+        <GameSelect label="Фильтр по работе" value={roleFilter} options={[{value:'all',label:'Любая работа'},...Array.from(new Set(state.workers.map(worker => worker.workRole)), role => ({value:role,label:workRoleLabel(null,role)}))]} onChange={filterRole}/>
+        <GameSelect label="Фильтр по статусу" value={statusFilter} options={[{value:'all',label:'Все статусы'},{value:'busy',label:'На курсе или ждут перевода'},{value:'favorites',label:'Избранные'}]} onChange={filterStatus}/>
+        <button type="button" className="pixel-button mini" disabled={!availableIds.length} onClick={() => setSelected([...new Set([...selected,...availableIds])])}>Выбрать видимых · {availableIds.length}</button>
+        <div className="crew-selection">{roster.map(worker => <label key={worker.id}>
           <input type="checkbox" checked={selected.includes(worker.id)}
             onChange={() => setSelected(current => current.includes(worker.id) ? current.filter(id => id !== worker.id) : [...current, worker.id])}/>
           {worker.name}
         </label>)}</div>
         <GameSelect label="Куда направить" value={target.id} options={places.map(place => ({ value: place.id, label: place.label }))} onChange={setDestination}/>
         <GameSelect label="Работа команды" value={role} options={target.roles.map(value => ({ value, label: workRoleLabel(target.id, value) }))} onChange={setCrewRole}/>
-        <button type="button" className="pixel-button mini" disabled={!selected.length} onClick={() => dispatch('assignCrew', { ids: selected, place: target.id, role })}>Назначить выбранных</button>
-        <label>Имя команды <input value={crewName} maxLength={24} onChange={e => setCrewName(e.target.value)}/></label>
-        <button type="button" className="pixel-button mini" disabled={!selected.length || !crewName.trim()} onClick={() => dispatch('saveCrew', { name: crewName, ids: selected })}>Сохранить места и работу</button>
-        {state.crews?.map(crew => <button key={crew.name} type="button" className="pixel-button mini" onClick={() => dispatch('assignCrew', { name: crew.name })}>Вернуть: {crew.name}</button>)}
+        <button type="button" className="pixel-button mini crew-apply" disabled={!selected.length}
+          onClick={() => confirmApply({ids:[...selected],place:target.id,role})}>Проверить назначение · {selected.length}</button>
+        <label>Имя набора <input value={crewName} maxLength={24} onChange={e => setCrewName(e.target.value)}/></label>
+        <button type="button" className="pixel-button mini" disabled={!crewName.trim()} onClick={() => dispatch('saveCrew', { name:crewName })}>Сохранить назначения и кучку</button>
+        {state.crews?.map(crew => <div className="preset-row" key={crew.name}>
+          <button type="button" className="pixel-button mini" onClick={() => confirmApply({name:crew.name})}>{crew.name} · {crew.members.length}</button>
+          <button type="button" className="pixel-button mini square" aria-label={`Переименовать ${crew.name}`} onClick={() => renamePreset(crew.name)}><Glyph name="edit"/></button>
+          <button type="button" className="pixel-button mini square" aria-label={`Удалить набор ${crew.name}`} onClick={() => dispatch('removePreset',{name:crew.name})}><Glyph name="close"/></button>
+          {renaming === crew.name && <form onSubmit={event => { event.preventDefault(); dispatch('renamePreset',{name:crew.name,next:new FormData(event.currentTarget).get('name')}); renamePreset(null); }}>
+            <input name="name" defaultValue={crew.name} aria-label="Новое имя набора" required maxLength={24}/><button type="submit" className="pixel-button mini">Сохранить</button>
+          </form>}
+        </div>)}
+        {apply && <section className="research-card" aria-label="Проверка назначения">
+          <p>{apply.name ? `Вернуть назначения из «${apply.name}»?` : `${apply.ids.length} ёж. · ${places.find(place => place.id === apply.place)?.label} · ${workRoleLabel(apply.place,apply.role)}`}</p>
+          <p>Перевозчики, родители и ученики сменят работу, когда освободятся.</p>
+          <button type="button" className="pixel-button mini" onClick={() => { dispatch('assignCrew',apply); confirmApply(null); }}>Применить</button>{' '}
+          <button type="button" className="pixel-button mini" onClick={() => confirmApply(null)}>Отмена</button>
+        </section>}
       </div>
     </details>
-    {state.workers.map(worker => {
+    <LodgePanel state={state} dispatch={dispatch}/>
+    {roster.map(worker => {
       const favorite = state.favorites.includes(worker.id);
       const kind = editor?.id === worker.id ? editor.kind : null;
       const place = places.find(item => item.id === workerWorkplace(worker));
@@ -654,6 +725,8 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         <span key={key} aria-label={`${({speed:'Скорость', strength:'Сила', endurance:'Выносливость', dexterity:'Ловкость', handling:'Сноровка', foraging:'Поиск'})[key]}: ${value}`}><ProfileGlyph name={key}/>{value}</span>)}</div>
       <p>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perk.desc}` : 'Без особого навыка'}</p>
       <p>Подходит для: {recruit.stats.foraging >= 8 ? 'поиска в лесу' : recruit.stats.speed + recruit.stats.strength >= 14 ? 'перевозок' : 'сбора урожая'}.</p>
+      <button type="button" className="pixel-button" disabled={state.apples < rerollPrice(state)}
+        onClick={() => dispatch('rerollRecruit')}>Другой кандидат · {icon('apple',number.format(rerollPrice(state)))}</button>
     </section>}
     <button type="button" className="pixel-button buy-button hire-button" disabled={Boolean(recruit) && (state.workers.length >= housingCapacity(state) || state.apples < hirePrice(state))}
       onClick={() => dispatch(recruit ? 'recruit' : 'previewRecruit', { orchardId })}>
@@ -671,19 +744,7 @@ function Guide({ message, onClose }) {
   </section>;
 }
 
-function SaveTransfer({ state, onClose, onImport }) {
-  const dialog = useRef(null);
-  const fileInput = useRef(null);
-  const readId = useRef(0);
-  const [candidate, setCandidate] = useState(null);
-  const [error, setError] = useState(null);
-  useEffect(() => {
-    const element = dialog.current;
-    element.showModal();
-    return () => { readId.current++; if (element.open) element.close(); };
-  }, []);
-
-  function download() {
+function downloadSave(state) {
     const json = JSON.stringify(state);
     if (globalThis.OrchardAndroid) {
       globalThis.OrchardAndroid.exportSave(json);
@@ -696,6 +757,20 @@ function SaveTransfer({ state, onClose, onImport }) {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+
+
+function SaveTransfer({ state, onClose, onImport }) {
+  const dialog = useRef(null);
+  const fileInput = useRef(null);
+  const readId = useRef(0);
+  const [candidate, setCandidate] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element.showModal();
+    return () => { readId.current++; if (element.open) element.close(); };
+  }, []);
+
 
   async function chooseFile(event) {
     const file = event.currentTarget.files[0];
@@ -719,7 +794,7 @@ function SaveTransfer({ state, onClose, onImport }) {
     <header><h2 id="save-title">Перенос сохранения</h2><button type="button" className="pixel-button mini square" aria-label="Закрыть перенос" onClick={onClose}><Glyph name="close"/></button></header>
     <p>Выгрузи сад в файл и загрузи его в другой сборке.</p>
     <div className="save-actions">
-      <button type="button" className="pixel-button" onClick={download}>{icon('save', 'Скачать JSON')}</button>
+      <button type="button" className="pixel-button" onClick={() => downloadSave(state)}>{icon('save', 'Скачать JSON')}</button>
       <button type="button" className="pixel-button" onClick={() => fileInput.current.click()}>{icon('back', 'Выбрать JSON')}</button>
       <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={chooseFile}/>
     </div>
@@ -746,6 +821,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   const [profileId, setProfile] = useState(null);
   const [focusPoint, setFocusPoint] = useState(null);
   const [industry, setIndustry] = useState(null);
+  const [research, openResearch] = useState(null);
   const [roadStart, setRoadStart] = useState(null);
   const [error, setError] = useState(null);
   const upgradeButton = useRef(null);
@@ -762,6 +838,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   const activeGuide = state.guide;
   const dismissGuide = () => dispatch('dismissGuide', { serial: activeGuide?.serial });
   const building = buildKind(mode);
+  const reveal = !market && !industry && !research && !treeOpen && !saveOpen && state.perkReveals?.[0];
   const profile = state.workers.find(worker => worker.id === profileId);
   const remaining = flowerActive(state) ? Math.ceil((state.boostUntil - state.time) / 1000) : 0;
 
@@ -792,8 +869,9 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
     }
     if (building) {
       if (building === 'road' && !roadStart) { setRoadStart(point); setError(null); return; }
-      const action = building === 'road' ? 'buildRoad' : building === 'pave' ? 'paveRoad' : 'buildIndustry';
-      const fields = { kind: building, point, from: roadStart, to: point };
+      const kind = researchKind(building);
+      const action = kind ? 'buildResearch' : building === 'road' ? 'buildRoad' : building === 'pave' ? 'paveRoad' : 'buildIndustry';
+      const fields = { kind: kind ?? building, point, from: roadStart, to: point };
       if (act(state, action, fields) === state) {
         setError(building === 'mine' ? 'Выбери свободное угольное месторождение в северных горах.'
           : building === 'road' || building === 'pave' ? 'Выбери свободный отрезок дороги. Проверь длину и запас монет.'
@@ -949,7 +1027,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   const starter = state.orchards[0];
   let tutorial = null;
   if (plantingTree) tutorial = isFieldCrop(variety) ? 'Выбери место для посевов на ферме' : variety === 'forest' ? 'Выбери место в Лесном саду' : 'Выбери место для яблони';
-  else if (building) tutorial = building === 'road' ? roadStart ? 'Выбери конец дороги' : 'Выбери начало дороги' : building === 'pave' ? 'Выбери участок готовой дороги' : `Выбери место: ${BUILDINGS[building].label}`;
+  else if (building) tutorial = building === 'road' ? roadStart ? 'Выбери конец дороги' : 'Выбери начало дороги' : building === 'pave' ? 'Выбери участок готовой дороги' : `Выбери место: ${BUILDINGS[building]?.label ?? RESEARCH_BUILDINGS[researchKind(building)]?.[0]}`;
   else if (mode === 'market') tutorial = 'Выбери свободную обочину для лавки';
   else if (landModes.includes(mode)) tutorial = mode === 'garden' ? 'Выбери поляну для яблоневого сада' : 'Выбери поляну для фермы';
   else if (mode === 'clear') tutorial = 'Нажми на растение, чтобы убрать его';
@@ -963,7 +1041,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
     else tutorial = `Собери яблоки в корзину — ${fruitCount(starter.fill)}/${basketLimit(starter)} · ??? ${state.apples}/${BALANCE.mystery} дома`;
   }
   return <TooltipProvider><main className="game-shell" onKeyDown={event => { if (event.key === 'Escape' && mode) changeMode(null); }}>
-    <OrchardMap state={state} mode={mode} orchardId={selected?.id ?? (mode === 'basket' ? START_ORCHARD : null)} sprinklerId={sprinklerId}
+    <OrchardMap state={state} reveal={reveal} mode={mode} orchardId={selected?.id ?? (mode === 'basket' ? START_ORCHARD : null)} sprinklerId={sprinklerId}
       movingStall={movingStall} roadStart={roadStart} selectedWorkerId={assigning?.id ?? profile?.id} focusPoint={focusPoint} onPoint={handleMapPoint}
       onTree={tree => {
         if (mode === 'clear') { dispatch('removeTree', { id: tree.id }); changeMode(null); return; }
@@ -978,7 +1056,11 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
       onFlower={flower => dispatch('flower', { id: flower.id })} onWorker={inspect}
       onBasket={basketAction} onSprinkler={sprinklerAction}
       onMarket={item => { if (!mode) setMarketId(item.stallId); }}
-      onIndustry={site => { if (!mode) setIndustry(site.id === 'house' ? 'overview' : site.id); }}
+      onIndustry={site => {
+        if (mode) return;
+        if (String(site.id).startsWith('research:')) openResearch(site.id);
+        else setIndustry(site.id === 'house' ? 'overview' : site.id);
+      }}
       onWater={({ orchardId }) => { dispatch('refillCan', { orchardId }); setError(null); }}
       onWild={item => dispatch('pickWild', { id: item.id })}/>
     <div className="hud">
@@ -1032,7 +1114,12 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
       <button type="button" className="pixel-button" onClick={() => setTreeOpen(true)}>{icon('tree', 'Улучшения')}</button>
       {state.trade.permit && <button type="button" className="pixel-button" onClick={() => setIndustry('overview')}>{icon('table', 'Хозяйство')}</button>}
     </nav>
+    {reveal && <PerkReveal state={state} event={reveal} dispatch={dispatch}/>}
+    {research && <ResearchScreen state={state} dispatch={dispatch} initialSite={research === 'overview' ? null : research}
+      onClose={() => openResearch(null)} onFocus={site => { openResearch(null); setFocusPoint({x:site.x,y:site.y}); }}
+      onBuild={kind => { openResearch(null); changeMode(`build:r-${kind}`); }}/>}
     {industry && <IndustryScreen state={state} dispatch={dispatch} initialSite={industry === 'overview' ? null : industry}
+      onResearch={() => { setIndustry(null); openResearch('overview'); }}
       onClose={() => setIndustry(null)} onBuild={kind => {
         changeMode(`build:${kind}`);
         if (kind === 'mine') setFocusPoint({ ...COAL_SITES[1] });
@@ -1068,7 +1155,8 @@ function App() {
         setRevision(current => current + 1);
       }}/>
     </div>}
-    {!playing && <MainMenu state={state} audio={audio} onPlay={() => setScreen('game')}/>}
+    {!playing && <MainMenu state={state} audio={audio} onPlay={() => setScreen('game')} onExport={() => downloadSave(state)}
+      onReset={() => { replace(newGame()); setRevision(current => current + 1); setScreen('launch'); }}/>}
   </>;
 }
 

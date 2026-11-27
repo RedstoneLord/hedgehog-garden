@@ -1,4 +1,7 @@
-import { perkEffect, rollPerk } from './perks.js';
+import { advanceDevelopment, developmentActions, expireLodge, reservedHousing } from './development.js';
+import { advanceScientist, scientistActions, validScientist } from './commission.js';
+import { advanceResearch, decorationBonus, hasResearch, loungeNear, poweredNear, researchActions, researchWorkplaces, validResearch } from './research.js';
+import { perkEffect, rollPerk, uniqueWork } from './perks.js';
 export { PERKS } from './perks.js';
 import { FOREST_CLEARING, OLD_MAP_OFFSET, terrainKind, WORLD } from './terrain.js';
 import { canWalkStraight, distance, findGardenRoute, findRoute, followRoute, routeTo } from './routes.js';
@@ -90,6 +93,22 @@ export const UPGRADES = {
   orchardTeams: { name: 'Отлаженная смена', desc: 'Ёжики восстанавливаются ещё на 15% быстрее.', cost: 265, icon: 'bed', requires: 'shiftPlanning' },
   furnaceCrew: { name: 'Бригада у печи', desc: 'Партии на производстве готовятся на 15% быстрее.', cost: 430, icon: 'fuel', requires: 'packingLine', gate: 'production' },
   forestPockets: { name: 'Лесные запасы', desc: 'Искатель приносит на четыре дикие ягоды больше.', cost: 104, icon: 'berry', requires: 'keenScent', gate: 'berries' },
+  bridgeOrchardCare: { name: 'Садовая опека', desc: 'Первый сад даёт ещё одно яблоко с дерева.', cost: 285, icon: 'apple', requires: 'heritageOrchard' },
+  seedExchange: { name: 'Обмен саженцами', desc: 'Обменивай два янтарных саженца на три обычных.', cost: 95, icon: 'seedSatchel', requires: 'seedSatchel' },
+  basketHooks: { name: 'Крюки для корзин', desc: 'Погрузка корзин на 10% быстрее.', cost: 134, icon: 'table', requires: 'quickPacking' },
+  forestLining: { name: 'Подкладка лукошка', desc: 'Искатели приносят ещё две дикие ягоды.', cost: 168, icon: 'berry', requires: 'forestPockets', gate: 'berries' },
+  wateringTote: { name: 'Ковш с носиком', desc: 'Ручной полив охватывает ещё одно растение.', cost: 184, icon: 'water', requires: 'farmWater', gate: 'berries' },
+  fruitSorting: { name: 'Корзины для сортировки', desc: 'Ёжики собирают яблоки на 10% быстрее.', cost: 154, icon: 'pickApple', requires: 'gardenCrew' },
+  houseDispatch: { name: 'Диспетчерская', desc: 'Грузчики несут ещё четыре товара за рейс.', cost: 258, icon: 'crate', requires: 'trailSatchels', gate: 'production' },
+  queueSteward: { name: 'Распорядитель очереди', desc: 'В каждой лавке появляется ещё одно место в очереди.', cost: 240, icon: 'market', requires: 'marketLedger' },
+  returningGuests: { name: 'Постоянные гости', desc: 'К лавкам с продавцом гости приходят на 5% чаще.', cost: 358, icon: 'coin', requires: 'queueSteward' },
+  fuelCrates: { name: 'Топливные ящики', desc: 'Трактор берёт до четырёх дополнительных единиц топлива за рейс.', cost: 420, icon: 'fuel', requires: 'furnaceCrew', gate: 'production' },
+  apprenticeship: { name: 'Ученические смены', desc: 'Курсы до десятого уровня занимают на 10% меньше времени.', cost: 178, icon: 'hedge', requires: 'longShift', gate: 'training' },
+  instructorBench: { name: 'Скамья инструктора', desc: 'Поздние курсы требуют на 10% меньше пайков с округлением вверх.', cost: 284, icon: 'bed', requires: 'apprenticeship', gate: 'advancedCourses' },
+  fieldNotes: { name: 'Полевой журнал', desc: 'Исследователь в лаборатории приносит на 5% больше ОИ.', cost: 160, icon: 'table', requires: 'gardenCrew', gate: 'eitherTutorial' },
+  insulatedPoles: { name: 'Изолированные провода', desc: 'Столбы соединяются на 10% дальше.', cost: 258, icon: 'track', requires: 'fieldNotes', gate: 'metering' },
+  maintainerKit: { name: 'Ремонтный набор', desc: 'Ёжик ремонтирует генератор на 10% быстрее.', cost: 350, icon: 'fuel', requires: 'insulatedPoles', gate: 'bearings' },
+  marketBeautification: { name: 'Красивый прилавок', desc: 'Украшения привлекают на 10% больше посетителей.', cost: 373, icon: 'flower', requires: 'returningGuests', gate: 'frontage' },
 };
 
 const commonNames = ['Клён', 'Шишка', 'Мята', 'Плюш', 'Тиша', 'Иголка', 'Рыжик', 'Орешек', 'Слива', 'Крош', 'Крапинка', 'Зёрнышко', 'Брусника', 'Веточка', 'Мох', 'Осока', 'Туман', 'Печенька', 'Папоротник', 'Жёлудь', 'Морошка', 'Хвостик'];
@@ -135,6 +154,7 @@ export function workplaces(state) {
       id: stallWorkplace(id), label: `Лавка ${index + 1}`, icon: 'market', stallId: id, roles: marketRoles,
     })),
     ...industryWorkplaces(state),
+    ...researchWorkplaces(state),
   ];
 }
 
@@ -152,13 +172,15 @@ export const groupCapacity = state => state.upgrades.includes('group3') ? 4 : st
 export const flowerActive = state => state.boostUntil > state.time;
 export const potatoAvailable = state => !state.unlocked && state.apples >= BALANCE.mystery;
 export const hirePrice = state => Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(BALANCE.firstHire * BALANCE.hireGrowth ** Math.max(0, state.workers.length - 1)));
+export const rerollPrice = state => Math.ceil(hirePrice(state) * .1 + (state.recruitRerollSpend ?? 0) * .5);
 export const seedPrice = state => Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(BALANCE.seed * BALANCE.seedGrowth ** state.seedPurchases * (state.upgrades.includes('seedSatchel') ? .8 : 1)));
 export const nextLevelXp = level => BALANCE.firstLevelXp + Math.round((level - 1) * BALANCE.levelXpGrowth);
 export const productionRate = state => state.deliveries.reduce((sum, event) => sum + event.amount, 0) / (BALANCE.productionWindow / 1000);
 const treeYield = (state, variety, orchard) => variety === 'berry'
-  ? VARIETIES.berry.yield + (berryBounds(state, orchard.id).rich ? 4 : 0) + (state.upgrades.includes('berryBaskets') ? 2 : 0) + (state.upgrades.includes('farmHarvest') ? 2 : 0) + (state.upgrades.includes('firstFarm') && state.orchards.find(item => isBerryOrchard(item.id))?.id === orchard.id ? 4 : 0)
-  : variety === 'wheat' ? VARIETIES.wheat.yield + (state.upgrades.includes('farmHarvest') ? 3 : 0)
+  ? VARIETIES.berry.yield + (berryBounds(state, orchard.id).rich ? 4 : 0) + (state.upgrades.includes('berryBaskets') ? 2 : 0) + (state.upgrades.includes('farmHarvest') ? 2 : 0) + (hasResearch(state,'fieldTrials') ? 2 : 0) + (state.upgrades.includes('firstFarm') && state.orchards.find(item => isBerryOrchard(item.id))?.id === orchard.id ? 4 : 0)
+  : variety === 'wheat' ? VARIETIES.wheat.yield + (state.upgrades.includes('farmHarvest') ? 3 : 0) + (hasResearch(state,'fieldTrials') ? 2 : 0)
     : VARIETIES[variety].yield + (orchard.id === START_ORCHARD && state.upgrades.includes('heritageOrchard') ? 3 : 0) + (state.upgrades.includes('orchardStewards') ? 2 : 0) + (state.upgrades.includes('crop') ? 2 : 0) + orchard.compostLevel
+  + Number(orchard.id === START_ORCHARD && state.upgrades.includes('bridgeOrchardCare'))
   + Number(variety !== 'red' && state.upgrades.includes('grafting'))
   + (orchard.id === START_ORCHARD && variety === 'red' ? orchard.specialtyLevel * 2 : 0);
 const growthRate = (orchard, tree) => {
@@ -176,15 +198,18 @@ const staminaLimit = (state, worker) => Math.max(12, Math.round((28 + worker.sta
 const harvestTime = (state, workers, variety) => {
   const dexterity = Math.max(...workers.map(worker => worker.stats.dexterity));
   const tools = variety === 'berry' ? 0 : globalUpgradeBonus(state, 'tools');
-  return 2200 * Math.min(...workers.map(worker => perkEffect(worker, 'harvest', 1))) * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .095) * (1 + tools));
+  const sorting = !isFieldCrop(variety) && state.upgrades.includes('fruitSorting') ? .9 : 1;
+  return 2200 * sorting / (1 + decorationBonus(state, workers[0], 'work')) * Math.min(...workers.map(worker => perkEffect(worker, 'harvest', 1))) * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .095) * (1 + tools));
 };
 const loadingTime = worker => 1800 / (1 + worker.stats.handling * .075);
-const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .67 + worker.stats.strength * .027) * (state.upgrades.includes('paving') ? 1.22 : 1);
+const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .67 + worker.stats.strength * .027) * (state.upgrades.includes('paving') ? 1.22 : 1) * perkEffect(worker,'haul',1);
 
 export function upgradeStatus(state, id) {
   const item = UPGRADES[id];
   if (state.upgrades.includes(id)) return 'done';
   if (!state.unlocked || (item.gate === 'berries' && !state.trade.berryKnown) || (item.gate === 'production' && !state.industry.unlocked) || (item.requires && !state.upgrades.includes(item.requires))) return 'locked';
+  if (item.gate === 'eitherTutorial' && !hasResearch(state,'irrigation') && !hasResearch(state,'electricity')) return 'locked';
+  if (item.gate && !['berries','production','eitherTutorial'].includes(item.gate) && !hasResearch(state,item.gate)) return 'locked';
   return state.xp >= item.cost ? 'ready' : 'pending';
 }
 
@@ -328,6 +353,7 @@ function deposit(state, cargo, orchardId, worker, home = HOUSE) {
   state.xpProgress += state.trade.permit ? Math.ceil((amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0)) * .72) : amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0);
   earnLevels(state);
   if (worker) {
+    uniqueWork(state,worker,'haul');
     state.deliveries.push({ amount, at: state.time });
     if (!state.firstDelivery) {
       state.firstDelivery = true;
@@ -373,6 +399,7 @@ function stage(state, orchard, variety, amount) {
 function collectFlower(state, id, worker) {
   if (!state.flowers.some(flower => flower.id === id)) return false;
   state.flowers = state.flowers.filter(flower => flower.id !== id);
+  uniqueWork(state,worker,'scout');
   state.boostUntil = state.time + flowerDuration(state);
   state.flowerAt = state.time + BALANCE.flowerCooldown + Math.floor(random(state) * BALANCE.flowerJitter);
   notice(state, worker ? `${worker.name} нашёл цветок бодрости. Ёжики ускорились.` : 'Цветок бодрости: ёжики ускорились.', 'flower');
@@ -480,37 +507,68 @@ const actions = {
     state.workers.pop();
     return true;
   },
+  exchangeSeeds(state) {
+    if (!state.upgrades.includes('seedExchange') || state.goldSeeds < 2) return false;
+    state.goldSeeds -= 2;
+    state.seeds += 3;
+    return true;
+  },
+  rerollRecruit(state) {
+    const price = rerollPrice(state);
+    if (!state.recruitOffer || state.apples < price) return false;
+    adjustStock(state,'apples',-price);
+    state.recruitRerollSpend = (state.recruitRerollSpend ?? 0) + price;
+    delete state.recruitOffer;
+    return actions.previewRecruit(state);
+  },
+  renamePreset(state, { name, next }) {
+    const title = hedgehogName(next);
+    const preset = state.crews?.find(item => item.name === name);
+    if (!preset || !title || state.crews.some(item => item.name === title)) return false;
+    preset.name = title;
+    return true;
+  },
+  removePreset(state, { name }) {
+    if (!state.crews?.some(item => item.name === name)) return false;
+    state.crews = state.crews.filter(item => item.name !== name);
+    return true;
+  },
   saveCrew(state, { name, ids }) {
     const title = hedgehogName(name);
-    if (!title || !Array.isArray(ids)) return false;
-    const members = state.workers.filter(worker => ids.includes(worker.id)).map(worker => ({
+    if (!title) return false;
+    const members = state.workers.filter(worker => ids === undefined || ids.includes(worker.id)).map(worker => ({
       id: worker.id, place: workerWorkplace(worker), role: worker.workRole,
     }));
     if (!members.length) return false;
     state.crews ??= [];
-    state.crews = [...state.crews.filter(crew => crew.name !== title), { name: title, members }].slice(-8);
+    state.crews = [...state.crews.filter(crew => crew.name !== title), { name: title, members, ...(ids === undefined ? { favorites:[...state.favorites] } : {}) }].slice(-8);
     return true;
   },
   assignCrew(state, { ids, place, role, name }) {
     const saved = state.crews?.find(crew => crew.name === name);
     const members = saved?.members ?? (Array.isArray(ids) ? [...new Set(ids)].map(id => ({ id, place, role })) : []);
     if (!members.length) return false;
-    let assigned = 0;
+    let assigned = 0, pending = 0;
     for (const member of members) {
       const worker = state.workers.find(item => item.id === member.id);
       const target = workplaces(state).find(item => item.id === member.place);
-      if (!worker || !target?.roles.includes(member.role) || state.industry.tractors.some(tractor => tractor.trip?.driverId === worker.id)) continue;
-      if (workerWorkplace(worker) !== member.place && !actions.assignWorkplace(state, member)) continue;
-      actions.assignRole(state, member);
-      assigned++;
+      if (!worker || worker.retirePending || !target?.roles.includes(member.role)) continue;
+      if (worker.train || worker.pairing || worker.industryCargo || worker.fuelCan || worker.powerCargo
+        || state.jobs.some(job => job.workers.includes(worker.id)) || state.industry.workshops.some(site => site.batch?.workerId === worker.id) || state.industry.tractors.some(tractor => tractor.trip?.driverId === worker.id)) {
+        worker.pendingAssignment = { ...member };
+        pending++;
+        continue;
+      }
+      if (applyPresetAssignment(state,member)) assigned++;
     }
-    notice(state, `Назначено ${assigned}/${members.length}. Проверь места и незавершённые рейсы остальных.`, 'group');
+    if (saved?.favorites) state.favorites = saved.favorites.filter(id => state.workers.some(worker => worker.id === id)).slice(0,groupCapacity(state));
+    notice(state, `Назначено ${assigned}. После работы: ${pending}. Пропущено ${members.length-assigned-pending}.`, 'group');
     return true;
   },
   recruit(state, { orchardId = START_ORCHARD }) {
     const price = hirePrice(state);
     const orchard = orchardById(state, orchardId);
-    if (!state.unlocked || !orchard || state.workers.length >= housingCapacity(state) || state.apples < price) return false;
+    if (!state.unlocked || !orchard || state.workers.length + reservedHousing(state) >= housingCapacity(state) || state.apples < price) return false;
     adjustStock(state, 'apples', -price);
     const worker = state.recruitOffer ?? generateWorker(state, orchard);
     if (state.recruitOffer) {
@@ -519,6 +577,7 @@ const actions = {
       state.workers.push(worker);
       delete state.recruitOffer;
     }
+    delete state.recruitRerollSpend;
     notice(state, `${worker.name} теперь помогает в саду.`, 'group');
     return true;
   },
@@ -533,9 +592,14 @@ const actions = {
   assignWorkplace(state, { id, place }) {
     const worker = state.workers.find(item => item.id === id);
     const target = workplaces(state).find(item => item.id === place);
-    if (!worker || !target || workerWorkplace(worker) === place
+    if (!worker || worker.train || worker.pairing || worker.retirePending || !target
       || state.industry.tractors.some(tractor => tractor.trip?.driverId === id)
-      || (target.kind === 'tractor' && state.workers.some(other => other.siteId === target.id))) return false;
+      || (['tractor','lab','generator'].includes(target.kind) && state.workers.some(other => other.id !== id && other.siteId === target.id))) return false;
+    if (workerWorkplace(worker) === place) {
+      if (!worker.stayAt) return false;
+      delete worker.stayAt;
+      return true;
+    }
     if (worker.industryCargo) {
       adjustStock(state, worker.industryCargo.item, worker.industryCargo.amount, nearestHome(state, worker));
       delete worker.industryCargo;
@@ -543,6 +607,10 @@ const actions = {
     if (worker.fuelCan) adjustStock(state, 'fuel', worker.fuelCan, nearestHome(state, worker));
     delete worker.fuelCan;
     delete worker.refueling;
+    if (worker.powerCargo) adjustStock(state,worker.powerCargo.key,worker.powerCargo.amount,nearestHome(state,worker));
+    delete worker.powerCargo;
+    delete worker.researchRoute;
+    delete worker.stayAt;
     worker.siteId = target.industryId ?? null;
     delete worker.industryRoute;
     delete worker.industryDropoff;
@@ -553,9 +621,15 @@ const actions = {
     notice(state, `${worker.name} теперь работает здесь — ${target.label}.`, 'hedge');
     return true;
   },
+  resumeWork(state, { id }) {
+    const worker = state.workers.find(item => item.id === id);
+    if (!worker?.stayAt || worker.train || worker.retirePending) return false;
+    delete worker.stayAt;
+    return true;
+  },
   assignRole(state, { id, role }) {
     const worker = state.workers.find(item => item.id === id);
-    if (!worker || worker.workRole === role) return false;
+    if (!worker || worker.train || worker.pairing || worker.retirePending || worker.workRole === role) return false;
     const place = workerWorkplace(worker);
     if (!workplaces(state).find(item => item.id === place)?.roles.includes(role)) return false;
     if (worker.industryCargo) {
@@ -565,6 +639,7 @@ const actions = {
     if (worker.fuelCan) adjustStock(state, 'fuel', worker.fuelCan, nearestHome(state, worker));
     delete worker.fuelCan;
     delete worker.refueling;
+    delete worker.stayAt;
     worker.workRole = role;
     notice(state, `${worker.name} — ${workRoleLabel(place, role).toLowerCase()}.`, 'hedge');
     return true;
@@ -640,7 +715,7 @@ const actions = {
     });
     const noFuel = state.industry.tractors.some(tractor => !tractor.trip) && !(state.industry.stock.fuel > 0);
     const message = crowded ? 'Грядки и сады посажены слишком тесно. Перенеси один участок подальше. При переносе зелёная подсветка покажет землю для быстрого роста.'
-      : state.workers.length >= housingCapacity(state) ? 'Все места у дома заняты. Новый дом даст ещё пять мест, а запасы у всех домов общие.'
+      : state.workers.length + reservedHousing(state) >= housingCapacity(state) ? 'Все места у дома заняты. Новый дом даст ещё пять мест, а запасы у всех домов общие.'
         : noFuel ? 'Тракторы ждут топлива. Назначь ёжика в угольную шахту или добудь уголь и отнеси готовое топливо на склад.'
           : waitingOrder ? 'В лавке ждёт заказ. В сводке хозяйства видно, чего не хватает и какие грузы уже в пути.'
             : state.industry.unlocked ? 'Поставь мастерскую рядом с дорогой и назначь ёжика. Пшеница идёт в муку, а для варенья пригодятся банки со склада.'
@@ -650,8 +725,18 @@ const actions = {
   },
 };
 
+function applyPresetAssignment(state,member) {
+  const worker = state.workers.find(item => item.id === member.id);
+  const target = workplaces(state).find(item => item.id === member.place);
+  if (!worker || !target?.roles.includes(member.role)) return false;
+  if (workerWorkplace(worker) !== member.place && !actions.assignWorkplace(state,member)) return false;
+  delete worker.stayAt;
+  if (worker.workRole !== member.role) actions.assignRole(state,member);
+  return true;
+}
+
 export function act(state, action, fields = {}) {
-  const handlers = [actions, tradeActions, industryActions].find(group => Object.hasOwn(group, action));
+  const handlers = [actions, tradeActions, industryActions, scientistActions, researchActions, developmentActions].find(group => Object.hasOwn(group, action));
   if (!handlers) return state;
   const next = structuredClone(state);
   const accepted = handlers[action](next, fields, { plots: constructionPlots(next) });
@@ -673,6 +758,11 @@ export function workerCharacteristics(state, worker) {
 }
 
 export function workerActivity(state, worker) {
+  if (worker.retirePending) return 'Завершает работу перед отдыхом';
+  if (worker.train) return 'На тренировке';
+  if (worker.pairing) return 'В семейном домике';
+  if (worker.pendingAssignment) return 'Заканчивает работу перед переводом';
+  if (worker.stayAt) return 'Ждёт нового назначения';
   if (worker.sleepUntil !== null) return 'Спит';
   const job = state.jobs.find(item => item.workers.includes(worker.id));
   if (!job && INDUSTRY_ROLES.includes(worker.workRole)) return WORK_ROLES[worker.workRole];
@@ -726,6 +816,7 @@ function movePick(state, job, workers, orchard, seconds, tree) {
     const amount = Math.min(strength, availableSpace(state, orchard, job));
     if (!amount) return true;
     job.load = pick(state, tree, amount);
+    if (job.load) for (const worker of workers) uniqueWork(state,worker,'harvest');
     job.variety = tree.variety;
     job.phase = 'basket';
     return false;
@@ -743,7 +834,7 @@ function moveDelivery(state, job, worker, orchard, seconds) {
     job.phase = 'toBasket';
     if (walkTo(state, worker, job, orchard.basket, speed(state, worker), seconds)) {
       job.phase = 'load';
-      job.until = state.time + loadingTime(worker) * (state.upgrades.includes('quickPacking') ? .8 : 1)
+      job.until = state.time + loadingTime(worker) * (poweredNear(state,orchard.basket) ? .8 : 1) * (state.upgrades.includes('basketHooks') ? .9 : 1) * (state.upgrades.includes('quickPacking') ? .8 : 1)
         / (1 + orchard.loadingLevel * GARDEN_RATES.loading + (state.trade.orchardPerks[orchard.id]?.depot ? .35 : 0));
     }
     return false;
@@ -823,7 +914,7 @@ function moveScout(state, job, worker, seconds) {
 }
 
 function startSleep(state, worker) {
-  worker.sleepUntil = state.time + (state.upgrades.includes('naps') ? 5200 : 8000) * (1 - globalUpgradeBonus(state, 'teahouse')) * (state.upgrades.includes('shiftPlanning') ? .8 : 1) * perkEffect(worker, 'rest', 1) * (state.upgrades.includes('orchardTeams') ? .85 : 1);
+  worker.sleepUntil = state.time + (state.upgrades.includes('naps') ? 5200 : 8000) * (1 - globalUpgradeBonus(state, 'teahouse')) * (state.upgrades.includes('shiftPlanning') ? .8 : 1) * perkEffect(worker, 'rest', 1) * (state.upgrades.includes('orchardTeams') ? .85 : 1) * (hasResearch(state,'recovery') ? .9 : 1) * (loungeNear(state,worker) ? .8 : 1);
 }
 
 function restAtBed(state, worker) {
@@ -907,7 +998,8 @@ function dispatchBasket(state, orchard, idle) {
 function assignJobs(state, seconds) {
   const busy = new Set(state.jobs.flatMap(job => job.workers));
   const drivers = new Set(state.industry.tractors.map(tractor => tractor.trip?.driverId));
-  const idle = state.workers.filter(worker => !busy.has(worker.id) && !drivers.has(worker.id));
+  const idle = state.workers.filter(worker => !busy.has(worker.id) && !drivers.has(worker.id) && !worker.train && !worker.pairing && !worker.stayAt
+    && !worker.retirePending && !worker.pendingAssignment);
   const commissionWorkers = new Set();
   for (const worker of idle) {
     if (worker.sleepUntil !== null && worker.sleepUntil <= state.time) {
@@ -988,7 +1080,7 @@ function assignJobs(state, seconds) {
 
 export function advance(state, elapsed) {
   if (elapsed <= 0) return state;
-  if (!state.trees.length && !state.jobs.length && !state.workers.length && !state.boostUntil && !state.flowerAt && !state.notice && !state.industry.unlocked && !state.trade.stalls.length) return state;
+  if (!state.trees.length && !state.jobs.length && !state.workers.length && !state.boostUntil && !state.flowerAt && !state.notice && !state.industry.unlocked && !state.trade.stalls.length && !state.lodge?.waiting.length) return state;
   const next = structuredClone(state);
   next.time += elapsed;
   if (next.quote?.until <= next.time) next.quote = null;
@@ -1005,10 +1097,14 @@ export function advance(state, elapsed) {
     if (tree.readyAt !== null && tree.readyAt > state.time) tree.readyAt += elapsed * (1 - rates.get(tree.orchardId));
     if (tree.readyAt !== null && tree.readyAt <= next.time) tree.fruit = treeYield(next, tree.variety, growthOrchards.get(tree.orchardId));
   }
+  advanceScientist(next);
   advanceCustomers(next, elapsed / 1000, random);
   moveJobs(next, elapsed / 1000);
   assignJobs(next, elapsed / 1000);
+  advanceResearch(next, elapsed / 1000, (actor,target) => planGardenWalk(next,actor,target), tree => startCropGrowth(next,tree),(worker,job) => uniqueWork(next,worker,job));
   advanceIndustry(next, elapsed / 1000, deposit, (actor, target) => planGardenWalk(next, actor, target));
+  advanceDevelopment(next, elapsed / 1000, (actor,target) => planGardenWalk(next,actor,target), () => generateWorker(next),
+    assignment => applyPresetAssignment(next,assignment), worker => staminaLimit(next,worker));
   earnLevels(next);
   if (next.flowerAt && next.time >= next.flowerAt) {
     if (!next.flowers.length) spawnFlower(next);
@@ -1161,7 +1257,8 @@ function readGame(raw, legacy) {
       state.forestSeeds ??= 0;
       state.trade ??= newTrade();
       state.industry = { ...newIndustry(), logisticsVersion: 0, ...state.industry };
-      if (!validIndustry(state.industry)) return null;
+      if (!validIndustry(state.industry) || !validScientist(state.scientist) || !validResearch(state.research)
+        || state.research && state.scientist?.stage !== 'complete') return null;
       if (!migrateLogistics(state)) return null;
       if (state.crews !== undefined && (!Array.isArray(state.crews) || !state.crews.every(crew => hedgehogName(crew?.name)
         && Array.isArray(crew.members) && crew.members.every(member => typeof member?.id === 'string'
@@ -1189,6 +1286,7 @@ function readGame(raw, legacy) {
         if (!state.flowers.length && !state.flowerAt) spawnFlower(state);
         state.mapVersion = 2;
       }
+      expireLodge(state);
       return migrateTerrain(updateBalance(state.basket ? migrateOrchard(state) : migrateFieldRules(state)));
     }
     const previous = state?.version === 1 ? state : JSON.parse(legacy);

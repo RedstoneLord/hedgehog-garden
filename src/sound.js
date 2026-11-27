@@ -12,8 +12,8 @@ import coinsUrl from './audio/coins.mp3?inline';
 import chirpUrl from './audio/chirp.mp3?inline';
 
 const backgroundTracks = [
-  { url: ambienceUrl, volume: .20 },
-  { url: musicUrl, volume: .08 },
+  { url: ambienceUrl, volume: .16 },
+  { url: musicUrl, volume: .10 },
 ];
 
 const samples = {

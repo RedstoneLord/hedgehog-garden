@@ -39,13 +39,13 @@ function SaveStats({ state }) {
   </dl>;
 }
 
-export function MainMenu({ state, audio, onPlay }) {
+export function MainMenu({ state, audio, onPlay, onReset, onExport }) {
   const [page, setPage] = useState('home');
   const primary = useRef(null);
   useEffect(() => { primary.current?.focus({ preventScroll: true }); }, [page]);
 
   return <main className="main-menu" aria-labelledby="menu-title" onKeyDown={event => {
-    if (page !== 'home' && event.key === 'Escape') setPage('home');
+    if (page !== 'home' && event.key === 'Escape') setPage(page === 'reset' ? 'settings' : 'home');
   }}>
     <div className="menu-stage">
       <div className="menu-board pixel-window">
@@ -61,12 +61,17 @@ export function MainMenu({ state, audio, onPlay }) {
               </div>
             </div>
           </> : <>
-            <h1 id="menu-title" className="menu-page-title">{page === 'settings' ? 'Настройки' : 'Статистика'}</h1>
+            <h1 id="menu-title" className="menu-page-title">{page === 'settings' ? 'Настройки' : page === 'reset' ? 'Начать заново' : 'Статистика'}</h1>
             {page === 'settings' ? <div className="menu-options">
               <SoundOption name="sound" label="Звуковые эффекты" enabled={audio.effects} onToggle={audio.toggleEffects}/>
               <SoundOption name="note" label="Музыка и звуки природы" enabled={audio.ambience} onToggle={audio.toggleAmbience}/>
-            </div> : <SaveStats state={state}/>}
-            <button type="button" className="pixel-button menu-back" ref={primary} onClick={() => setPage('home')}><Glyph name="back"/>Назад</button>
+              <button type="button" className="pixel-button menu-option" onClick={() => setPage('reset')}><Glyph name="axe"/>Сбросить прогресс</button>
+            </div> : page === 'reset' ? <section className="menu-options" aria-label="Сброс прогресса">
+              <p>Текущий сад будет удалён. Перед сбросом можно скачать сохранение.</p>
+              <button type="button" className="pixel-button" onClick={onExport}><Glyph name="save"/> Скачать сохранение</button>
+              <button type="button" className="pixel-button" onClick={() => { onReset(); setPage('home'); }}>Удалить сад и начать заново</button>
+            </section> : <SaveStats state={state}/>}
+            <button type="button" className="pixel-button menu-back" ref={primary} onClick={() => setPage(page === 'reset' ? 'settings' : 'home')}><Glyph name="back"/>Назад</button>
           </>}
         </div>
       </div>

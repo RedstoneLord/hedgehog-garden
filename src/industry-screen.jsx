@@ -1,3 +1,7 @@
+import landscape from './pixel-landscape.png?inline';
+import { SCIENTIST_GOODS, scientistStall, scientistInTransit } from './commission.js';
+import { hasResearch, powerNetworks, researchSites, stationLabel } from './research.js';
+import { WORLD } from './terrain.js';
 import { GameSelect } from './game-select.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './art.jsx';
@@ -44,7 +48,7 @@ function Workshop({ site, state, send }) {
   return <>
     {site.automatic === false && <p className="shortage">Автоматическая смена на паузе. Ручное приготовление доступно.</p>}
     <div className="industry-recipe"><GameSelect label="Рецепт" value={site.recipe} onChange={key => send('chooseRecipe', { key })}
-      options={Object.entries(RECIPES).map(([key, item]) => ({ value: key, disabled: site.level < item.level,
+      options={Object.entries(RECIPES).map(([key, item]) => ({ value: key, disabled: site.level < item.level || key === 'biofuel' && !hasResearch(state,key),
         label: GOODS[key].label + (site.level < item.level ? ' · мастерская II' : '') }))}/></div>
     <div className="industry-ingredients">{Object.entries(recipe.needs).map(([item, qty]) => (
       <Tooltip key={item} label={GOODS[item].label} detail={`На станции ${site.inputs[item] ?? 0} · в домах ${stockCount(state, item)}`}>
@@ -53,7 +57,7 @@ function Workshop({ site, state, send }) {
       <span aria-hidden="true">→</span><Good item={site.recipe} qty={recipe.amount + Number(state.upgrades.includes('largerBatches'))}/>
     </div>
     {site.batch && <p><Glyph name={GOODS[site.batch.key].icon}/> {GOODS[site.batch.key].label} · {Math.ceil(progress)} с</p>}
-    {site.automatic !== false && site.level === 3 && site.recipe !== 'fuel' && !site.inputs.fuel && <p className="shortage">Фабрика ждёт топливо на станции.</p>}
+    {site.automatic !== false && site.level === 3 && !site.electric && site.recipe !== 'fuel' && !site.inputs.fuel && <p className="shortage">Фабрика ждёт топливо на станции.</p>}
     {output.length > 0 && <div className="industry-ingredients">{output.map(([item, qty]) => <Good key={item} item={item} qty={qty}/>)}</div>}
     <div className="industry-buttons">
       <button className="pixel-button mini" type="button" disabled={!canCraft(state, site, site.recipe, true)} onClick={() => send('craft', { key: site.recipe })}><Glyph name="hand"/> Приготовить вручную с подносом из дома</button>
@@ -66,6 +70,11 @@ function Workshop({ site, state, send }) {
       </button>}
     </div>
     {site.level === 2 && !factoryReady(site) && <p>Для фабрики купи скорость, партию и склад мастерской.</p>}
+    {site.level === 3 && hasResearch(state,'retrofit') && <div className="industry-buttons">
+      <p>{site.electric ? `Питание от сети · ${Math.round((site.power ?? 0)*100)}%` : 'Фабрика работает на топливе.'}</p>
+      <button type="button" className="pixel-button mini" disabled={Boolean(site.batch)} onClick={() => send('retrofitFactory')}>
+        {site.electric ? 'Вернуть топливный привод' : 'Перейти на электричество'}
+      </button></div>}
     <StationUpgrades site={site} state={state} send={send}/>
   </>;
 }
@@ -94,9 +103,100 @@ function StatusBoard({ state, onFocus }) {
   </button>)}</div>;
 }
 
-export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild, onFocus }) {
+const zoneLabels = { home:'Жильё', garden:'Сады и фермы', stall:'Рынок', production:'Производство', research:'Исследования и сеть' };
+const categoryGoods = {
+  all:Object.keys(GOODS), crops:['apples','berries','wheat'], ingredients:['flour','jars','provisions'],
+  outputs:Object.keys(GOODS).filter(key => GOODS[key].value), fuel:['coal','fuel','biofuel'],
+};
+const quantity = amounts => Object.values(amounts).reduce((sum,count) => sum + count,0);
+function GardenOverview({ state, onFocus }) {
+  const [area, setArea] = useState('garden');
+  const [zoom, setZoom] = useState(1);
+  const [power, showPower] = useState(false);
+  const [center, setCenter] = useState({x:WORLD.x + WORLD.width/2,y:WORLD.y + WORLD.height/2});
+  const zones = {
+    home:homesFor(state).map(home => ({...home,label:home.id ? `Дом ${home.number}` : 'Первый дом', status:`Запасы · ${number.format(Object.keys(GOODS).reduce((sum,key) => sum + homeStock(state,home,key),0))}`})),
+    garden:state.orchards.map(plot => ({...plot.basket,id:plot.id,label:orchardName(plot.id),status:`Готовых корзин · ${plot.ready.length}`, workers:state.workers.filter(worker => worker.orchardId === plot.id)})),
+    stall:state.trade.stalls.map((stall,index) => ({...stall,id:`stall:${stall.id}`,label:`Лавка ${index+1}`,status:`В очереди · ${stall.customers.filter(customer => customer.phase === 'queue').length}`,workers:state.workers.filter(worker => worker.stallId === stall.id)})),
+    production:industryStations(state).filter(site => site.kind !== 'house').map(site => ({...site,label:`${BUILDINGS[site.kind].label} ${site.number}`,
+      status:site.automatic === false ? 'На паузе' : site.batch || site.trip || site.mineAt ? 'В работе' : 'Ожидает',
+      workers:state.workers.filter(worker => worker.siteId === site.id)})),
+    research:researchSites(state).map(site => ({...site,label:stationLabel(site),status:site.broken ? 'Требуется ремонт' : site.kind === 'generator' ? `Мощность · ${site.output ?? 0}` : `Питание · ${Math.round((site.power ?? 0)*100)}%`,
+      workers:state.workers.filter(worker => worker.siteId === site.id)})),
+  };
+  const width = WORLD.width/zoom, height = WORLD.height/zoom;
+  const x = Math.max(WORLD.x,Math.min(WORLD.x + WORLD.width-width,center.x-width/2));
+  const y = Math.max(WORLD.y,Math.min(WORLD.y + WORLD.height-height,center.y-height/2));
+  const map = useRef(null);
+  const start = useRef(null);
+  const colors = {home:'#f2aa6a',garden:'#d2f293',stall:'#f6d685',production:'#f68f7c',research:'#8aeeec'};
+  return <section className="pixel-window industry-panel garden-overview"><h3>Карта хозяйства</h3>
+    <div className="industry-buttons">
+      <button type="button" className="pixel-button mini" disabled={zoom === 1} onClick={() => setZoom(Math.max(1,zoom-.5))} aria-label="Отдалить сводку">−</button>
+      <button type="button" className="pixel-button mini" disabled={zoom === 4} onClick={() => setZoom(Math.min(4,zoom+.5))} aria-label="Приблизить сводку">+</button>
+      <button type="button" className="pixel-button mini" aria-pressed={power} onClick={() => showPower(!power)}>Схема питания</button>
+    </div>
+    <svg ref={map} className="industry-minimap" viewBox={`${x} ${y} ${width} ${height}`} role="img" aria-label="Карта построек и участков"
+      onPointerDown={event => { start.current = {x:event.clientX,y:event.clientY,worldX:x + width/2,worldY:y+height/2}; event.currentTarget.setPointerCapture(event.pointerId); }}
+      onPointerMove={event => {
+        if (!start.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        const bounds = map.current.getBoundingClientRect();
+        setCenter({x:start.current.worldX + (start.current.x-event.clientX)*width/bounds.width,y:start.current.worldY + (start.current.y-event.clientY)*height/bounds.height});
+      }} onLostPointerCapture={() => { start.current = null; }}>
+      <image href={landscape} x={WORLD.x} y={WORLD.y} width={WORLD.width} height={WORLD.height} opacity=".55"/>
+      {power && powerNetworks(state).flatMap(net => net.links.map(([a,b]) => <line key={a.id+b.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={colors.research} strokeWidth={26}/>))}
+      {Object.entries(zones).flatMap(([kind,points]) => points.map((site,index) => <circle key={kind+index} cx={site.x} cy={site.y} r={(kind === area ? 70 : 46)/Math.sqrt(zoom)}
+        fill={colors[kind]} opacity={kind === area ? 1 : .58} stroke="#30263b" strokeWidth={18/zoom}/>))}
+    </svg>
+    <div className="industry-buttons">{Object.entries(zoneLabels).map(([key,label]) => <button className="pixel-button mini" key={key} type="button"
+      aria-pressed={area === key} onClick={() => { setArea(key); if (zones[key][0]) setCenter(zones[key][0]); }}><i className="zone-key" style={{backgroundColor:colors[key]}}/>{label}</button>)}</div>
+    <div className="industry-board">{zones[area].map((site,index) => <button key={site.id ?? index} className="pixel-button" type="button" onClick={() => onFocus(site)}>
+      <span>{site.label}</span><small>{site.status}{site.workers ? ` · Ёжиков ${site.workers.length}` : ''}</small>
+    </button>)}</div>
+    {power && powerNetworks(state).map(net => <p key={net.nodes[0].id}>Мощность {Math.round(net.nodes[0].grid?.supply ?? 0)} / {net.nodes[0].grid?.demand ?? 0} · Заряд {Math.round(net.nodes.reduce((sum,site) => sum + (site.charge ?? 0),0))}</p>)}
+  </section>;
+}
+
+function Warehouse({ state, onFocus, dispatch }) {
+  const [filter, setFilter] = useState('all');
+  const keys = categoryGoods[filter];
+  const allSites = [...homesFor(state).map(home => ({ home, id:homeId(home), site:home, label:home.id ? `Дом ${home.number}` : 'Первый дом' })),
+    ...industryStations(state).filter(site => site.kind !== 'house').map(site => ({ site,id:site.id,label:`${BUILDINGS[site.kind].label} ${site.number}` })),
+    ...researchSites(state).filter(site => site.kind === 'generator').map(site => ({site,id:site.id,label:stationLabel(site)}))];
+  return <>
+    <section className="pixel-window industry-panel warehouse-panel">
+      <h3>Запасы хозяйства</h3><GameSelect label="Категория" value={filter} options={['Все','Урожай','Ингредиенты','Продукты','Топливо'].map((label,index) => ({value:Object.keys(categoryGoods)[index],label}))} onChange={setFilter}/>
+      <div className="industry-stock">{keys.map(item => <Good key={item} item={item} qty={stockCount(state,item)}/>)}</div>
+      {state.industry.unlocked && <div className="industry-buttons">{[4,8,20].map(amount => <button key={amount} type="button" className="pixel-button"
+        disabled={state.trade.coins < JAR_PRICE * amount} onClick={() => dispatch('buyJars',{amount})}>Банки ×{amount} · <Money amount={amount * JAR_PRICE}/></button>)}
+        <button type="button" className="pixel-button" disabled={!stockCount(state,'provisions') || !state.workers.some(worker => worker.sleepUntil === null && worker.stamina < 35)}
+          onClick={() => dispatch('useProvisions')}>Раздать дорожный паёк</button></div>}
+    </section>
+    <div className="industry-grid">{allSites.map(({home,id,site,label}) => {
+      const onSite = item => home ? homeStock(state,home,item) : (site.output?.[item] ?? 0) + (site.inputs?.[item] ?? 0) + (site.stock?.[item] ?? 0)
+        + (site.kind === 'mine' && ['fuel','coal'].includes(item) ? site[item] ?? 0 : 0) + (site.kind === 'tractor' && item === 'fuel' ? Math.floor(site.fuel ?? 0) : 0);
+      const reserved = item => state.industry.tractors.reduce((sum,{trip}) => sum + (trip?.source === id && trip.item === item && !trip.loaded ? trip.amount : 0),0);
+      return <section className="pixel-window industry-panel warehouse-panel" key={id}><h3>{label}</h3>
+        <div className="industry-stock">{keys.filter(item => onSite(item) || incomingGoods(state,id,item) || reserved(item)).map(item => <div key={item}>
+          <Good item={item} qty={Math.max(0,onSite(item)-reserved(item))}/>
+          {reserved(item) > 0 && <small> · резерв {reserved(item)}</small>}
+          {incomingGoods(state,id,item) > 0 && <small> · в пути {incomingGoods(state,id,item)}</small>}
+        </div>)}</div>
+        <button type="button" className="pixel-button mini" onClick={() => onFocus(site)}>Показать на карте</button>
+      </section>;
+    })}</div>
+    {state.scientist && <section className="pixel-window industry-panel warehouse-panel">
+      <h3>Счёт заказа учёного</h3>
+      <p>Зачислено {number.format(quantity(state.scientist.bank))} / {number.format(quantity(SCIENTIST_GOODS))} · В пути {number.format(Object.keys(SCIENTIST_GOODS).reduce((sum,key) => sum + scientistInTransit(state,key),0))}</p>
+      {state.scientist.stage !== 'complete' && (scientistStall(state) ? <button type="button" className="pixel-button" onClick={() => onFocus(scientistStall(state))}>Показать лавку</button> : <p>Поставь лавку, чтобы продолжить получение образцов.</p>)}
+      {state.scientist.stage === 'accepted' && <details><summary>Образцы по видам</summary>{Object.entries(SCIENTIST_GOODS).map(([key,amount]) => <p key={key}>{GOODS[key].label} · {number.format(state.scientist.bank[key] ?? 0)} / {number.format(amount)}</p>)}</details>}
+    </section>}
+  </>;
+}
+
+export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild, onFocus, onResearch }) {
   const dialog = useRef(null);
-  const [tab, setTab] = useState(initialSite ? 'stations' : 'build');
+  const [tab, setTab] = useState(initialSite ? 'stations' : 'board');
   const [expanded, setExpanded] = useState(initialSite ?? null);
   const sites = industryStations(state);
   useEffect(() => {
@@ -108,11 +208,12 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
     if (!initialSite) return;
     dialog.current.querySelector('[data-open="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [initialSite]);
-  return <dialog ref={dialog} className="game-screen industry-screen" aria-labelledby="industry-title"
+  return <dialog ref={dialog} className="game-screen industry-screen" style={{'--estate-backdrop': `url("${landscape}")`}} aria-labelledby="industry-title"
     onCancel={event => { event.preventDefault(); onClose(); }}>
     <header className="screen-header market-header">
       <h2 id="industry-title"><Glyph name="table"/> Хозяйство</h2>
       <p><Money amount={state.trade.coins}/></p>
+      <button type="button" className="pixel-button" onClick={onResearch}><Glyph name="tree"/> Исследования</button>
       <button type="button" className="pixel-button" onClick={onClose}><Glyph name="back"/> Карта</button>
     </header>
     <div className="industry-body">
@@ -169,9 +270,9 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
             </div>
             {expanded === site.id && <div className="industry-details">
               {site.kind === 'workshop' && <Workshop site={site} state={state} send={send}/>}
-              {site.kind === 'mine' && <><p>Уголь · {site.coal}/{stationCapacity(site)}{site.fuel > 0 ? ` · старый запас топлива ${site.fuel}` : ''}{site.mineAt ? ' · идёт добыча' : ''}</p>
+              {site.kind === 'mine' && <><p>Уголь · {site.coal}/{stationCapacity(site,state)}{site.fuel > 0 ? ` · старый запас топлива ${site.fuel}` : ''}{site.mineAt ? ' · идёт добыча' : ''}</p>
                 <div className="industry-buttons">
-                  <button type="button" className="pixel-button mini" disabled={Boolean(site.mineAt) || site.coal >= stationCapacity(site)} onClick={() => send('mineCoal')}>Добыть уголь</button>
+                  <button type="button" className="pixel-button mini" disabled={Boolean(site.mineAt) || site.coal >= stationCapacity(site,state)} onClick={() => send('mineCoal')}>Добыть уголь</button>
                   <button type="button" className="pixel-button mini" disabled={!site.coal && !site.fuel} onClick={() => send('takeIndustryStock')}>Отнести до 24 ед. в ближайший дом</button>
                 </div>
                 <StationUpgrades site={site} state={state} send={send}/></>}
@@ -185,6 +286,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
         })}
       </>}
       {tab === 'board' && <>
+        <GardenOverview state={state} onFocus={onFocus}/>
         <section className="pixel-window industry-panel">
           <h3>Доставки</h3>
           <p>Тракторных рейсов {state.industry.deliveries} · В пути {state.industry.tractors.filter(site => site.trip).length} · Ёжики {state.workers.length}/{housingCapacity(state)}</p>
@@ -201,21 +303,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           })}</div>
         </section>
       </>}
-      {tab === 'stock' && <>
-        <section className="pixel-window industry-panel">
-          <h3>Запасы во всех домах</h3><div className="industry-stock">{Object.keys(GOODS).map(item => <Good key={item} item={item} qty={stockCount(state, item)}/>)}</div>
-          {state.industry.unlocked && <div className="industry-buttons">{[4, 8, 20].map(amount => <button key={amount} className="pixel-button" type="button"
-            disabled={state.trade.coins < JAR_PRICE * amount} onClick={() => dispatch('buyJars', { amount })}>Банки ×{amount} · <Money amount={amount * JAR_PRICE}/></button>)}
-            <button type="button" className="pixel-button" disabled={!stockCount(state, 'provisions') || !state.workers.some(worker => worker.sleepUntil === null && worker.stamina < 35)}
-              onClick={() => dispatch('useProvisions')}>Раздать дорожный паёк</button></div>}
-        </section>
-        {homesFor(state).map(home => <section key={homeId(home)} className="pixel-window industry-panel">
-          <h3>{home.id ? `Дом для ёжиков ${home.number}` : 'Первый дом'}</h3>
-          <div className="industry-stock">{Object.keys(GOODS).filter(item => homeStock(state, home, item) > 0).map(item =>
-            <Good key={item} item={item} qty={homeStock(state, home, item)}/>)}</div>
-          <button type="button" className="pixel-button mini" onClick={() => onFocus(home)}>Показать на карте</button>
-        </section>)}
-      </>}
+      {tab === 'stock' && <Warehouse state={state} onFocus={onFocus} dispatch={dispatch}/>}
     </div>
   </dialog>;
 }
