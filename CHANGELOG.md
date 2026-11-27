@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.2
+
+- Recruit previews and hedgehog profiles suggest jobs based on the worker’s stats and perks and the workplaces available in the current garden.
+- Extended perks to market work, freight, tractor operation, workshops and factories, mining, power, research, and training. Factories can have an optional hedgehog assigned to improve batches.
+
+See the [0.7.2 release notes](versions/0.7.2/RELEASE.md).
+
 ## 0.7.1.1
 
 - Removed undiscovered feature names from the bulk job assignment preview.

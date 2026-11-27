@@ -286,3 +286,23 @@ test('late infrastructure supports an 18-hedgehog preset and a simulated power c
   assert.equal(state.workers.length,18);
   assert.equal(workerWorkplace(state.workers[0]),state.orchards[0].id);
 });
+
+test('site perks improve lab throughput and generator repairs without requiring new recruits', () => {
+  let state = withResearch();
+  state = act(state,'recruit');
+  const [operator,researcher] = state.workers;
+  const generator = {id:'research:201',kind:'generator',x:1150,y:1250,fuel:'coal',stock:{coal:12},charge:0,wear:0,broken:true};
+  const lab = {id:'research:202',kind:'lab',x:1220,y:1250};
+  state.research = {rp:0,projects:['electricity'],sites:[generator,lab]};
+  Object.assign(operator,{x:generator.x,y:generator.y,siteId:generator.id,workRole:'operator',perks:['steadyCurrent']});
+  Object.assign(researcher,{x:lab.x,y:lab.y,siteId:lab.id,workRole:'researcher',perks:['glean']});
+  adjustStock(state,'coal',8);
+  advanceResearch(state,7,null,()=>{});
+  assert.equal(generator.broken,true);
+  advanceResearch(state,1,null,()=>{});
+  assert.equal(generator.broken,false);
+  assert.equal(stockCount(state,'coal'),0);
+  assert.equal(state.research.rp,0);
+  advanceResearch(state,11,null,()=>{});
+  assert.equal(state.research.rp,1);
+});

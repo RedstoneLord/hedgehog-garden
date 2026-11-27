@@ -8,7 +8,9 @@ import { trainingCost } from './development.js';
 import { GOODS, stockCount, housingCapacity } from './industry.js';
 import { STAT_INFO } from './orchard.js';
 import { chargeCapacity, FUELS, hasResearch, powerNetworks, PROJECTS, RESEARCH_BRANCHES, RESEARCH_BUILDINGS, researchBlocked, researchSite, researchSites, stationLabel } from './research.js';
-import { PERKS, workerPerks } from './perks.js';
+import { perkDescription, PERKS, workerPerks } from './perks.js';
+import { availablePerkJobs } from './job-advice.jsx';
+import { workplaces } from './game.js';
 import './research.css';
 
 const format = new Intl.NumberFormat('ru').format;
@@ -215,7 +217,7 @@ export function PerkReveal({ state, event, dispatch }) {
     <div className="perk-confetti" aria-hidden="true">{Array.from({length:18},(_,index) => <i key={index} style={{'--ray':index * 20 + 'deg','--wait':index % 5 * 68 + 'ms'}}/>)}</div>
     <div className="perk-award-hedge">{worker && <HedgeSprite hedge={worker}/>}</div>
     <h2>{event.name ?? worker?.name} HAS EARNED THE {perk.name.toUpperCase()} PERK!</h2>
-    <p><Glyph name={perk.icon}/> {perk.desc}</p>
+    <p><Glyph name={perk.icon}/> {perkDescription(event.perk,availablePerkJobs(state,workplaces(state)))}</p>
     {worker?.pendingPerks?.includes(event.perk) && <div className="research-actions">
       {workerPerks(worker).map(key => <button key={key} type="button" className="pixel-button"
         onClick={() => dispatch('replacePerk',{id:worker.id,earn:event.perk,replace:key})}>Заменить «{PERKS[key].name}»</button>)}

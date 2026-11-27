@@ -1,4 +1,4 @@
-import { perkEffect, uniqueWork } from './perks.js';
+import { canImproveFactoryBatch, freightPerkBonus, movementPerks, perkEffect, uniqueWork } from './perks.js';
 import { depositScientist, SCIENTIST_GOODS, SCIENTIST_TARGET, scientistDemand, scientistStall } from './commission.js';
 import { fuelCapacity, hasResearch, researchSite, researchSites } from './research.js';
 import { HOUSE, takeReady } from './orchard.js';
@@ -124,7 +124,7 @@ export function industryWorkplaces(state) {
   return industryStations(state).filter(site => site.kind !== 'house').map((site) => ({
     ...site, industryId: site.id, icon: BUILDINGS[site.kind].icon,
     label: site.level === 3 ? `Фабрика ${site.number}` : `${BUILDINGS[site.kind].label} ${site.number}`,
-    roles: site.kind === 'workshop' ? (site.level === 3 ? ['buyer', 'porter'] : ['maker', 'buyer', 'porter'])
+    roles: site.kind === 'workshop' ? ['maker', 'buyer', 'porter']
       : site.kind === 'mine' ? ['miner', 'porter'] : ['driver'],
   }));
 }
@@ -151,10 +151,14 @@ function notify(state, text, symbol) {
   state.notice = { text, symbol, at: state.time, serial: state.nextId++ };
 }
 
+const baseBatchAmount = (state, shop, key) => RECIPES[key].amount + tuning(shop, 'yield')
+  + Number(state.upgrades.includes('largerBatches')) + Number(key === 'fuel' && state.upgrades.includes('efficientFuel'));
+const outputRoom = (state, shop) => stationCapacity(shop,state) - Object.values(shop.output).reduce((sum, qty) => sum + qty, 0);
+
 export function canCraft(state, shop, key, manual = false) {
   if (!shop || shop.kind !== 'workshop' || shop.batch || !Object.hasOwn(RECIPES, key) || key === 'biofuel' && !hasResearch(state,key)) return false;
   const recipe = RECIPES[key];
-  return shop.level >= recipe.level && Object.values(shop.output).reduce((sum, qty) => sum + qty, 0) + recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches')) + Number(key === 'fuel' && state.upgrades.includes('efficientFuel')) <= stationCapacity(shop,state)
+  return shop.level >= recipe.level && baseBatchAmount(state,shop,key) <= outputRoom(state,shop)
     && Object.entries(recipe.needs).every(([item, qty]) => {
       const missing = qty - (shop.inputs[item] ?? 0);
       const home = manual && missing > 0 && nearestHome(state, shop, item);
@@ -162,7 +166,7 @@ export function canCraft(state, shop, key, manual = false) {
       return missing <= stored;
     });
 }
-function startBatch(state, shop, key, method) {
+function startBatch(state, shop, key, method, worker) {
   const manual = method === 'manual';
   const needsFuel = method === 'factory' && !shop.electric && key !== 'fuel'
     && (!tuning(shop, 'efficiency') || !shop.fuelCoast);
@@ -178,10 +182,21 @@ function startBatch(state, shop, key, method) {
   const speed = (method === 'factory' ? 2 : method === 'worker' ? 1.18 : 1) *
     (1 + .25 * tuning(shop, 'speed')) * (method === 'factory' && hasResearch(state,'factoryEfficiency') ? 1.15 : 1) * (state.upgrades.includes('batchCraft') ? 1.25 : 1) *
     (state.upgrades.includes('packingLine') ? 1.25 : 1) * (state.upgrades.includes('furnaceCrew') ? 1.15 : 1) * (key === 'fuel' && state.upgrades.includes('coalKiln') ? 1.5 : 1);
-  const amount = recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches'))
-    + Number(key === 'fuel' && state.upgrades.includes('efficientFuel'));
+  const amount = Math.min(outputRoom(state,shop), baseBatchAmount(state,shop,key) + perkEffect(worker,'batch'));
   if (manual) state.industry.firstManualBatch = true;
-  shop.batch = { key, method, amount, until: state.time + recipe.ms / speed };
+  shop.batch = { key, method, amount, until: state.time + recipe.ms * perkEffect(worker,'craft',1) / speed };
+  if (worker) shop.batch.workerId = worker.id;
+  return true;
+}
+
+const baseCoal = mine => 6 + 2 * tuning(mine,'yield');
+const canMine = (state,mine) => mine?.kind === 'mine' && !mine.mineAt && mine.coal + baseCoal(mine) <= stationCapacity(mine,state);
+function startMining(state,mine,worker) {
+  if (!canMine(state,mine)) return false;
+  mine.mineAt = state.time + 7500 * perkEffect(worker,'mine',1) / (1 + .25 * tuning(mine,'speed'));
+  // Keep the miner's bonus if they rest, change job, or reload before the cycle ends.
+  mine.pendingCoal = Math.min(stationCapacity(mine,state) - mine.coal, baseCoal(mine) + perkEffect(worker,'coal'));
+  if (worker) mine.minerId = worker.id;
   return true;
 }
 
@@ -301,11 +316,7 @@ export const industryActions = {
     return room < 24;
   },
   mineCoal(state, { id }) {
-    const mine = industrySite(state, id);
-    const amount = 6 + 2 * tuning(mine ?? {}, 'yield');
-    if (mine?.kind !== 'mine' || mine.coal + amount > stationCapacity(mine,state) || mine.mineAt) return false;
-    mine.mineAt = state.time + 7500 / (1 + .25 * tuning(mine, 'speed'));
-    return true;
+    return startMining(state,industrySite(state,id));
   },
   makeFuel(state, fields) {
     return industryActions.mineCoal(state, fields);
@@ -521,8 +532,11 @@ function workerAt(state, site, worker, seconds, plan = (actor, target) => routeT
   if (!route || route.x !== site.x || route.y !== site.y) worker.industryRoute = plan(worker, site);
   if (!worker.industryRoute) return false;
   worker.stamina = Math.max(0, worker.stamina - seconds * .3);
-  return followRoute(worker, worker.industryRoute, 85 + worker.stats.speed * 6, seconds, state.industry.roads);
+  return followRoute(worker, worker.industryRoute, (85 + worker.stats.speed * 6) * movementPerks(state,worker), seconds, state.industry.roads);
 }
+
+const porterCapacity = (state,worker) => Math.max(1,12 + worker.stats.strength * 2 + freightPerkBonus(worker)
+  + (state.upgrades.includes('houseDispatch') ? 4 : 0));
 
 function movePorter(state, site, worker, seconds, walk) {
   const cargo = worker.industryCargo;
@@ -548,7 +562,7 @@ function movePorter(state, site, worker, seconds, walk) {
   const item = Object.keys(stock).find(key => stock[key] > 0 && !state.industry.tractors.some(({ trip }) => trip?.source === site.id && trip.item === key && !trip.loaded));
   if (item && walk(site, worker, seconds)) {
     const output = site.kind === 'mine' ? site : site.output;
-    const amount = Math.min(output[item], 12 + worker.stats.strength * 2 + (state.upgrades.includes('houseDispatch') ? 4 : 0));
+    const amount = Math.min(output[item], porterCapacity(state,worker));
     output[item] -= amount;
     worker.industryCargo = { item, amount, homeId: homeId(nearestHome(state, site)) };
     return;
@@ -562,7 +576,7 @@ function movePorter(state, site, worker, seconds, walk) {
     const home = nearestHome(state, site, key);
     if (!home) continue;
     if (walk(home, worker, seconds)) {
-      const amount = Math.min(need, homeStock(state, home, key), 12 + worker.stats.strength * 2 + (state.upgrades.includes('houseDispatch') ? 4 : 0));
+      const amount = Math.min(need, homeStock(state, home, key), porterCapacity(state,worker));
       adjustStock(state, key, -amount, home);
       worker.industryCargo = { item: key, amount, siteId: site.id };
     }
@@ -592,7 +606,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     const buyer = available('buyer', shop.id);
     const jarsNeeded = RECIPES[shop.recipe].needs.jars ?? 0;
     if (buyer && jarsNeeded && stockCount(state, 'jars') + (shop.inputs.jars ?? 0) < jarsNeeded
-      && state.trade.coins >= 8 * JAR_PRICE && walk(nearestHome(state, shop), buyer, seconds)) {
+      && state.trade.coins >= Math.ceil(8 * JAR_PRICE * perkEffect(buyer,'buy',1)) && walk(nearestHome(state, shop), buyer, seconds)) {
       const home = nearestHome(state, shop);
       state.trade.coins -= Math.ceil(8 * JAR_PRICE * perkEffect(buyer,'buy',1));
       uniqueWork(state,buyer,'buyer');
@@ -602,25 +616,29 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     const maker = available('maker', shop.id);
     const porter = available('porter', shop.id);
     if (porter) movePorter(state, shop, porter, seconds, walk);
-    if (shop.batch || shop.automatic === false) continue;
-    if (shop.level === 3) startBatch(state, shop, shop.recipe, 'factory');
-    else if (maker && walk(shop, maker, seconds) && startBatch(state, shop, shop.recipe, 'worker')) {
-      shop.batch.workerId = maker.id;
-      shop.batch.amount += perkEffect(maker,'batch');
-      maker.stamina = Math.max(0, maker.stamina - RECIPES[shop.recipe].ms / 1000);
+    if (shop.automatic === false) continue;
+    if (shop.level === 3) {
+      const helper = maker && canImproveFactoryBatch(maker) && walk(shop,maker,seconds) ? maker : undefined;
+      if (!shop.batch && startBatch(state,shop,shop.recipe,'factory',helper) && helper) {
+        helper.stamina = Math.max(0,helper.stamina - RECIPES[shop.recipe].ms / 2500);
+      }
+    } else if (!shop.batch && maker && walk(shop,maker,seconds) && startBatch(state,shop,shop.recipe,'worker',maker)) {
+      maker.stamina = Math.max(0,maker.stamina - RECIPES[shop.recipe].ms / 1000);
     }
   }
   for (const mine of state.industry.mines) {
     const miner = available('miner', mine.id);
     if (mine.mineAt && mine.mineAt <= state.time) {
+      const starter = state.workers.find(worker => worker.id === mine.minerId);
+      mine.coal += mine.pendingCoal ?? baseCoal(mine);
       mine.mineAt = null;
-      mine.coal += 6 + 2 * tuning(mine, 'yield') + (miner ? perkEffect(miner,'coal') : 0);
-      uniqueWork(state,miner,'miner');
+      delete mine.pendingCoal;
+      delete mine.minerId;
+      uniqueWork(state,starter,'miner');
     }
     const porter = available('porter', mine.id);
     if (porter) movePorter(state, mine, porter, seconds, walk);
-    if (miner && !mine.mineAt && mine.coal + 6 + 2 * tuning(mine, 'yield') <= stationCapacity(mine,state)
-      && walk(mine, miner, seconds) && industryActions.mineCoal(state, { id: mine.id })) {
+    if (miner && canMine(state,mine) && walk(mine,miner,seconds) && startMining(state,mine,miner)) {
       miner.stamina = Math.max(0, miner.stamina - 6);
     }
   }
@@ -636,7 +654,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
         if (!home) continue;
         driver.refueling = true;
         if (!walk(home, driver, seconds)) continue;
-        driver.fuelCan = Math.min(4, homeStock(state, home, 'fuel'));
+        driver.fuelCan = Math.min(4 + perkEffect(driver,'refuel'), homeStock(state, home, 'fuel'));
         adjustStock(state, 'fuel', -driver.fuelCan, home);
         delete driver.refueling;
       }
@@ -722,7 +740,9 @@ export function validIndustry(industry) {
     && industry.workshops.every(shop => [1, 2, 3].includes(shop.level) && Object.hasOwn(RECIPES, shop.recipe)
       && validStock(shop.inputs) && validStock(shop.output) && (!shop.batch
         || Object.hasOwn(RECIPES, shop.batch.key) && Number.isFinite(shop.batch.until)))
-    && industry.mines.every(mine => validQty(mine.fuel) && validQty(mine.coal))
+    && industry.mines.every(mine => validQty(mine.fuel) && validQty(mine.coal)
+      && (mine.pendingCoal === undefined || validQty(mine.pendingCoal) && Number.isFinite(mine.mineAt))
+      && (mine.minerId === undefined || typeof mine.minerId === 'string'))
     && industry.tractors.every(tractor => !tractor.trip || (validPoint(tractor.trip.from) && validPoint(tractor.trip.toPoint)
       && typeof tractor.trip.to === 'string' && validQty(tractor.trip.amount)
       && (!tractor.trip.nextDrop || typeof tractor.trip.nextDrop.to === 'string' && validPoint(tractor.trip.nextDrop.toPoint)

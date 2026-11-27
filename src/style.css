@@ -525,3 +525,8 @@ svg { display: block; }
 .recruit-stats svg { width: 20px; height: 20px; }
 .recruit-offer p { font-size: 12px; margin-top: 5px; }
 .camera-controls .map-extra { order: -1; }
+
+.job-advice { color: #f5d69a; min-width: 0; }
+.job-advice ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; padding: 0; list-style: none; }
+.job-advice li { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; background: #302539; border: 1px solid #9b7658; }
+.job-advice .glyph { width: 14px; height: 14px; flex: none; }

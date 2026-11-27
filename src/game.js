@@ -1,7 +1,7 @@
 import { advanceDevelopment, developmentActions, expireLodge, reservedHousing } from './development.js';
 import { advanceScientist, scientistActions, validScientist } from './commission.js';
 import { advanceResearch, decorationBonus, hasResearch, loungeNear, poweredNear, researchActions, researchWorkplaces, validResearch } from './research.js';
-import { perkEffect, rollPerk, uniqueWork } from './perks.js';
+import { FLOWER_SPEED, movementPerks, perkEffect, rollPerk, uniqueWork } from './perks.js';
 export { PERKS } from './perks.js';
 import { FOREST_CLEARING, OLD_MAP_OFFSET, terrainKind, WORLD } from './terrain.js';
 import { canWalkStraight, distance, findGardenRoute, findRoute, followRoute, routeTo } from './routes.js';
@@ -33,7 +33,7 @@ const PREVIOUS_FOREST_CLEARING = { x:4860, y:870, width:774, height:520 };
 export const BALANCE = {
   mystery: 100, seed: 5, seedGrowth: 1.36, firstHire: 150, hireGrowth: 1.16, firstLevelXp: 16, levelXpGrowth: 1.8, perkChance: .06,
   crop: VARIETIES.red.yield, regrowth: VARIETIES.red.regrowth,
-  stride: 106, favoriteBoost: 1.18, flowerBoost: 1.55, flowerDuration: 16000,
+  stride: 106, favoriteBoost: 1.18, flowerBoost: FLOWER_SPEED, flowerDuration: 16000,
   talkCooldown: 33000, coOpDistance: 278, flowerCooldown: 90000, flowerJitter: 60000, productionWindow: 20000,
 };
 const originalUpgrades = {
@@ -165,7 +165,8 @@ export function workerWorkplace(worker) {
   return worker.orchardId;
 }
 
-export function workRoleLabel(place, role) {
+export function workRoleLabel(place, role, workplace) {
+  if (role === 'maker' && workplace?.level === 3) return 'Настраивать фабрику';
   return isBerryOrchard(place) && role === 'collect' ? 'Собирать урожай' : WORK_ROLES[role];
 }
 export const groupCapacity = state => state.upgrades.includes('group3') ? 4 : state.upgrades.includes('group2') ? 3 : 1 + Number(state.upgrades.includes('group1'));
@@ -641,7 +642,7 @@ const actions = {
     delete worker.refueling;
     delete worker.stayAt;
     worker.workRole = role;
-    notice(state, `${worker.name} — ${workRoleLabel(place, role).toLowerCase()}.`, 'hedge');
+    notice(state, `${worker.name} — ${workRoleLabel(place, role, industrySite(state,place)).toLowerCase()}.`, 'hedge');
     return true;
   },
   renameWorker(state, { id, name }) {
@@ -746,8 +747,7 @@ export function act(state, action, fields = {}) {
 function speed(state, worker) {
   const favorite = state.favorites.includes(worker.id) ? BALANCE.favoriteBoost : 1;
   const pace = state.upgrades.includes('pace') ? 1.18 : 1;
-  const flower = flowerActive(state) ? BALANCE.flowerBoost + perkEffect(worker, 'bloom') + (state.upgrades.includes('flowerPower') ? .15 : 0) : 1;
-  return BALANCE.stride * perkEffect(worker, 'speed', 1) * (1 + (worker.stats.speed - 5) * .045) * favorite * pace * flower * (1 + globalUpgradeBonus(state, 'boots'));
+  return BALANCE.stride * movementPerks(state,worker) * (1 + (worker.stats.speed - 5) * .045) * favorite * pace * (1 + globalUpgradeBonus(state, 'boots'));
 }
 
 export const flowerDetection = (worker, state) => 70 + worker.stats.foraging * 18 + perkEffect(worker, 'detect') + (state?.upgrades.includes('keenScent') ? 45 : 0);
@@ -765,7 +765,7 @@ export function workerActivity(state, worker) {
   if (worker.stayAt) return 'Ждёт нового назначения';
   if (worker.sleepUntil !== null) return 'Спит';
   const job = state.jobs.find(item => item.workers.includes(worker.id));
-  if (!job && INDUSTRY_ROLES.includes(worker.workRole)) return WORK_ROLES[worker.workRole];
+  if (!job && INDUSTRY_ROLES.includes(worker.workRole)) return workRoleLabel(worker.siteId,worker.workRole,industrySite(state,worker.siteId));
   if (!job && worker.workRole === 'haul') return 'Ждёт полную корзину';
   if (!job) return worker.workRole === 'scout' ? 'Готовится к поиску' : 'Ждёт урожая';
   if (job.kind === 'pick' && worker.workRole === 'haul') return 'Заканчивает сбор';

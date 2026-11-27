@@ -25,7 +25,8 @@ import { soilRate } from './siting.js';
 import { useGameAudio } from './sound.js';
 import { GameSelect } from './game-select.jsx';
 import { ProfileGlyph } from './profile-art.jsx';
-import { PERK_TIERS } from './perks.js';
+import { perkDescription, PERK_TIERS } from './perks.js';
+import { availablePerkJobs, JobAdvice } from './job-advice.jsx';
 import { MainMenu } from './main-menu.jsx';
 import { LodgePanel, PerkReveal, ResearchScreen, ResearchStationArt } from './research-screen.jsx';
 import { scientistReady, scientistStall } from './commission.js';
@@ -616,6 +617,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
   const [statusFilter, filterStatus] = useState('all');
   const [apply, confirmApply] = useState(null);
   const [renaming, renamePreset] = useState(null);
+  const applyPlace = places.find(place => place.id === apply?.place);
   const roster = state.workers.filter(worker => (!search.trim() || worker.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
     && (siteFilter === 'all' || workerWorkplace(worker) === siteFilter) && (roleFilter === 'all' || worker.workRole === roleFilter)
     && (statusFilter === 'all' || statusFilter === 'busy' && (worker.train || worker.pairing || worker.pendingAssignment)
@@ -658,7 +660,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
           {worker.name}
         </label>)}</div>
         <GameSelect label="Куда направить" value={target.id} options={places.map(place => ({ value: place.id, label: place.label }))} onChange={setDestination}/>
-        <GameSelect label="Работа команды" value={role} options={target.roles.map(value => ({ value, label: workRoleLabel(target.id, value) }))} onChange={setCrewRole}/>
+        <GameSelect label="Работа команды" value={role} options={target.roles.map(value => ({ value, label: workRoleLabel(target.id, value, target) }))} onChange={setCrewRole}/>
         <button type="button" className="pixel-button mini crew-apply" disabled={!selected.length}
           onClick={() => confirmApply({ids:[...selected],place:target.id,role})}>Проверить назначение · {selected.length}</button>
         <label>Имя набора <input value={crewName} maxLength={24} onChange={e => setCrewName(e.target.value)}/></label>
@@ -672,7 +674,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
           </form>}
         </div>)}
         {apply && <section className="research-card" aria-label="Проверка назначения">
-          <p>{apply.name ? `Вернуть назначения из «${apply.name}»?` : `${apply.ids.length} ёж. · ${places.find(place => place.id === apply.place)?.label} · ${workRoleLabel(apply.place,apply.role)}`}</p>
+          <p>{apply.name ? `Вернуть назначения из «${apply.name}»?` : `${apply.ids.length} ёж. · ${applyPlace?.label} · ${workRoleLabel(apply.place,apply.role,applyPlace)}`}</p>
           <p>Занятые ёжики сменят работу, когда освободятся.</p>
           <button type="button" className="pixel-button mini" onClick={() => { dispatch('assignCrew',apply); confirmApply(null); }}>Применить</button>{' '}
           <button type="button" className="pixel-button mini" onClick={() => confirmApply(null)}>Отмена</button>
@@ -684,7 +686,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
       const favorite = state.favorites.includes(worker.id);
       const kind = editor?.id === worker.id ? editor.kind : null;
       const place = places.find(item => item.id === workerWorkplace(worker));
-      const jobTooltip = `Работа: ${workRoleLabel(place?.id, worker.workRole)}. Изменить работу.`;
+      const jobTooltip = `Работа: ${workRoleLabel(place?.id, worker.workRole, place)}. Изменить работу.`;
       const destination = place?.label ?? 'Выбрать место';
       const placeTooltip = `Место работы: ${destination}.`;
       const favoriteLabel = favorite ? 'Убрать из кучки' : 'Добавить в кучку';
@@ -706,7 +708,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         {kind === 'role' && <div className="worker-options" id={optionsId} role="group" aria-label="Работа ёжика">
           {place?.roles.map(role => <button type="button" key={role} className="pixel-button mini"
             aria-pressed={worker.workRole === role} onClick={() => { dispatch('assignRole', { id: worker.id, role }); closeEditor(); }}>
-            {icon(WORK_ROLE_ICONS[role], workRoleLabel(place.id, role))}{worker.workRole === role && <Glyph name="check" className="assignment-check"/>}
+            {icon(WORK_ROLE_ICONS[role], workRoleLabel(place.id, role, place))}{worker.workRole === role && <Glyph name="check" className="assignment-check"/>}
           </button>)}
         </div>}
         {kind === 'place' && <div className="worker-options" id={optionsId} role="group" aria-label="Место работы ёжика">
@@ -723,8 +725,8 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
       <HedgeSprite hedge={recruit}/><strong>{recruit.name}</strong>
       <div className="recruit-stats">{Object.entries(recruit.stats).map(([key, value]) =>
         <span key={key} aria-label={`${({speed:'Скорость', strength:'Сила', endurance:'Выносливость', dexterity:'Ловкость', handling:'Сноровка', foraging:'Поиск'})[key]}: ${value}`}><ProfileGlyph name={key}/>{value}</span>)}</div>
-      <p>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perk.desc}` : 'Без особого навыка'}</p>
-      <p>Подходит для: {recruit.stats.foraging >= 8 ? 'поиска в лесу' : recruit.stats.speed + recruit.stats.strength >= 14 ? 'перевозок' : 'сбора урожая'}.</p>
+      <p>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perkDescription(recruit.perk,availablePerkJobs(state,places))}` : 'Без особого навыка'}</p>
+      <JobAdvice places={places} worker={recruit}/>
       <button type="button" className="pixel-button" disabled={state.apples < rerollPrice(state)}
         onClick={() => dispatch('rerollRecruit')}>Другой кандидат · {icon('apple',number.format(rerollPrice(state)))}</button>
     </section>}

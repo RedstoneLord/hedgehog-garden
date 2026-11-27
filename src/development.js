@@ -1,7 +1,7 @@
 import { researchUnlocked } from './commission.js';
 import { adjustStock, housingCapacity, nearestHome, stockCount } from './industry.js';
 import { HOUSE, DEFAULT_STATS } from './orchard.js';
-import { PERKS, rollPerk, workerPerks } from './perks.js';
+import { movementPerks, perkEffect, PERKS, rollPerk, workerPerks } from './perks.js';
 import { hasResearch, researchSite } from './research.js';
 import { distance, followRoute } from './routes.js';
 
@@ -15,7 +15,7 @@ function draw(state) {
 const pick = (state,list) => list[Math.floor(draw(state) * list.length)];
 export function trainingCost(state, worker, stat) {
   const level = worker?.stats[stat] ?? 20;
-  const duration = Math.round(5500 * (level + 1) ** 1.52 * (level < 10 && state.upgrades.includes('apprenticeship') ? .9 : 1));
+  const duration = Math.round(5500 * (level + 1) ** 1.52 * (level < 10 && state.upgrades.includes('apprenticeship') ? .9 : 1) * perkEffect(worker,'training',1));
   return { duration, materials: level >= 14 ? Math.ceil((level - 12) * 4 * (state.upgrades.includes('instructorBench') ? .9 : 1)) : 0,
     available: level < 20 && (level < 14 || hasResearch(state,'advancedCourses')) };
 }
@@ -145,7 +145,7 @@ export function advanceDevelopment(state, seconds, plan, createWorker, applyAssi
   const at = (worker,site) => {
     if (distance(worker,site) <= 8) return true;
     if (worker.developmentRoute?.x !== site.x || worker.developmentRoute?.y !== site.y) worker.developmentRoute = plan(worker,site);
-    return worker.developmentRoute && followRoute(worker,worker.developmentRoute,100,seconds,state.industry.roads);
+    return worker.developmentRoute && followRoute(worker,worker.developmentRoute,100 * movementPerks(state,worker),seconds,state.industry.roads);
   };
   for (const worker of state.workers) {
     if (worker.retirePending && !busy(state,worker)) sendToLodge(state,worker,now);

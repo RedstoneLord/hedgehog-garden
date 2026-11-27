@@ -1,7 +1,8 @@
 import { researchUnlocked } from './commission.js';
 import { researchSite, stationLabel } from './research.js';
 import { ResearchStationArt } from './research-screen.jsx';
-import { PERK_TIERS, workerPerks } from './perks.js';
+import { perkDescription, PERK_TIERS, workerPerks } from './perks.js';
+import { availablePerkJobs, JobAdvice } from './job-advice.jsx';
 import { GameSelect } from './game-select.jsx';
 import { industrySite } from './industry.js';
 import { IndustryArt } from './industry-art.jsx';
@@ -100,8 +101,7 @@ function habitat(state, worker) {
   return { point, label: orchardName(id), art };
 }
 
-function WorkAssignment({ state, worker, dispatch, onAssign }) {
-  const places = workplaces(state);
+function WorkAssignment({ state, worker, places, dispatch, onAssign }) {
   const place = places.find(item => item.id === workerWorkplace(worker));
   return <section className="profile-assignment" aria-label="Место и работа">
     <div className="profile-area">
@@ -114,13 +114,15 @@ function WorkAssignment({ state, worker, dispatch, onAssign }) {
     </div>
     <GameSelect label={<><Glyph name={WORK_ROLE_ICONS[worker.workRole]}/> Работа</>} value={worker.workRole}
       onChange={role => dispatch('assignRole', { id: worker.id, role })} disabled={!place}
-      options={(place?.roles ?? []).map(role => ({ value: role, label: workRoleLabel(place.id, role) }))}/>
+      options={(place?.roles ?? []).map(role => ({ value: role, label: workRoleLabel(place.id, role, place) }))}/>
   </section>;
 }
 
 export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
   const stats = workerCharacteristics(state, worker);
   const perks = workerPerks(worker);
+  const places = workplaces(state);
+  const jobs = availablePerkJobs(state,places);
   const [confirm, confirmRetirement] = useState(false);
   const { point, label, art } = habitat(state, worker);
   return <article className="profile-body" aria-label={`Профиль ёжика ${worker.name}`}>
@@ -153,16 +155,17 @@ export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
       const perk = PERKS[key];
       return <section key={key} className="profile-perk" aria-label="Перк">
         <div className="perk-icon" data-perk={key}><Glyph name={perk.icon}/></div>
-        <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label ?? 'Уникальный'} · {perk.desc}</p></div>
+        <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label ?? 'Уникальный'} · {perkDescription(key,jobs)}</p></div>
       </section>;
     })}
     {worker.pendingPerks?.map(key => <section key={key} className="research-card">
-      <h3>Новый перк · {PERKS[key].name}</h3><p>{PERKS[key].desc}</p>
+      <h3>Новый перк · {PERKS[key].name}</h3><p>{perkDescription(key,jobs)}</p>
       {(perks.length === 3 ? perks : [null]).map(replace => <button key={replace ?? 'empty'} type="button" className="pixel-button mini"
         onClick={() => dispatch('replacePerk',{id:worker.id,earn:key,replace})}>{replace ? `Заменить «${PERKS[replace].name}»` : 'Добавить перк'}</button>)}
     </section>)}
     {worker.stayAt && !worker.train && <button className="pixel-button mini" type="button" onClick={() => dispatch('resumeWork',{id:worker.id})}>Вернуться к работе</button>}
-    <WorkAssignment state={state} worker={worker} dispatch={dispatch} onAssign={onAssign}/>
+    <JobAdvice places={places} worker={worker}/>
+    <WorkAssignment state={state} worker={worker} places={places} dispatch={dispatch} onAssign={onAssign}/>
     {researchUnlocked(state) && <section className="profile-assignment">
       {worker.retirePending ? <p>Заканчивает рейс перед отдыхом.</p> : confirm ? <>
         <p>Ёжик освободит место после текущей работы. Вернуть его можно в течение 15 минут, если в доме есть место.</p>

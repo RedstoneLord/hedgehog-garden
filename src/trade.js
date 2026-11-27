@@ -1,5 +1,5 @@
 import { productLine } from './market-dialogue.js';
-import { perkEffect, uniqueWork } from './perks.js';
+import { freightPerkBonus, perkEffect, uniqueWork } from './perks.js';
 import { advanceScientist, depositScientist, SCIENTIST_GOODS, scientistDemand, scientistStall, waitForScientistIntake } from './commission.js';
 import { decorationBonus } from './research.js';
 import { CUSTOMERS } from './customers.js';
@@ -267,7 +267,7 @@ function automaticDemand(state, stall, key, worker) {
     .reduce((sum, job) => sum + job.cargo.amount, 0);
   const home = supplyHome(state, stall, key);
   const inHouse = home ? homeStock(state, home, key) - (key === 'apples' && !home.id ? stall.reserve : 0) : 0;
-  const capacity = 28 + worker.stats.strength * 8 + perkEffect(worker,'cargo') + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
+  const capacity = 28 + worker.stats.strength * 8 + freightPerkBonus(worker) + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
   return restockAmount(state,stall,key,Math.min(target - (stall.stock[key] ?? 0) - incoming - incomingGoods(state, `stall:${stall.id}`, key),inHouse,capacity));
 }
 function completeSale(state, stall, customer, worker) {
@@ -748,7 +748,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
       if (!source || !scientistDemand(state,job.key)) return true;
       const arrived = walk(source);
       if (arrived !== true) return arrived === null;
-      const amount = Math.min(scientistDemand(state,job.key),homeStock(state,source,job.key),28 + worker.stats.strength * 8);
+      const amount = Math.min(scientistDemand(state,job.key),homeStock(state,source,job.key),28 + worker.stats.strength * 8 + freightPerkBonus(worker));
       if (!amount) return true;
       adjustStock(state,job.key,-amount,source);
       job.cargo = { key:job.key, amount };
@@ -788,7 +788,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
   const arrived = walk(stall);
   if (arrived !== true) return arrived === null;
   job.phase = 'serve';
-  job.until ??= state.time + Math.max(2500,11500 - worker.stats.handling * 720);
+  job.until ??= state.time + Math.max(2500,11500 - worker.stats.handling * 720) * perkEffect(worker,'service',1);
   if (state.time < job.until) return false;
   acceptCustomerOrder(state, customer);
   if (canServe(stall,customer.order)) completeSale(state,stall,customer,worker);

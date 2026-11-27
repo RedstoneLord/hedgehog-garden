@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { act, advance, importGame, newGame, orchardPlots, plotBounds, workerWorkplace } from '../src/game.js';
-import { adjustStock, COAL_SITES, GOODS, homeStock, housingCapacity, nearestHome, PRODUCTION_PRICE, RECIPES, stockCount } from '../src/industry.js';
+import { adjustStock, advanceIndustry, COAL_SITES, GOODS, homeStock, housingCapacity, nearestHome, PRODUCTION_PRICE, RECIPES, stockCount } from '../src/industry.js';
 import { canServe, marketSite, orderLines } from '../src/trade.js';
 import { findRoute } from '../src/routes.js';
 import { soilRate } from '../src/siting.js';
+import { HOUSE } from '../src/orchard.js';
 
 const workshop = { x: 1160, y: 1250 };
 const house = { x: 1370, y: 1110 };
@@ -274,4 +275,67 @@ test('one tractor takes a reserved shipment to two nearby stalls without spendin
   for (let n = 0; n < 150 && state.industry.deliveries < 2; n++) state = advance(state, 200);
   assert.deepEqual(state.trade.stalls.map(stall => stall.stock.pie), [5, 5]);
   assert.equal(state.industry.tractors[0].tank, 1);
+});
+
+test('crafting perks carry from workshops into optional factory tuning and respect their output buffer', () => {
+  let state = build(act(ready(),'unlockProduction'),'workshop',workshop);
+  const id = state.workers[0].id;
+  const siteId = state.industry.workshops[0].id;
+  state = act(state,'assignWorkplace',{id,place:siteId});
+  Object.assign(state.workers[0],workshop,{perks:['steady','batchMaster']});
+  state.industry.workshops[0].inputs.apples = 48;
+  state = advance(state,85);
+  let shop = state.industry.workshops[0];
+  assert.equal(shop.batch.amount,RECIPES.slices.amount + 1);
+  assert.ok(Math.abs((shop.batch.until - state.time) - RECIPES.slices.ms * .92 / 1.18) < 1e-7);
+  shop.level = 3;
+  shop.inputs.fuel = 6;
+  shop.batch = null;
+  state = advance(state,85);
+  shop = state.industry.workshops[0];
+  assert.equal(shop.batch.method,'factory');
+  assert.equal(shop.batch.workerId,id);
+  assert.equal(shop.batch.amount,RECIPES.slices.amount + 1);
+  assert.equal(shop.batch.until - state.time,RECIPES.slices.ms * .92 / 2);
+  assert.ok(importGame(JSON.stringify(state)));
+
+  shop.batch = null;
+  shop.output.slices = 48 - RECIPES.slices.amount;
+  state = advance(state,85);
+  assert.equal(state.industry.workshops[0].batch.amount,RECIPES.slices.amount);
+  state.industry.workshops[0].batch = null;
+  state.industry.workshops[0].output = {};
+  state.workers[0].siteId = null;
+  state = advance(state,85);
+  assert.equal(state.industry.workshops[0].batch.workerId,undefined);
+  assert.equal(state.industry.workshops[0].batch.until - state.time,RECIPES.slices.ms / 2);
+});
+
+test('mining perks are applied at the start and survive a rest or reload before payout', () => {
+  let state = build(act(ready(),'unlockProduction'),'mine',COAL_SITES[1]);
+  const siteId = state.industry.mines[0].id;
+  const id = state.workers[0].id;
+  state = act(state,'assignWorkplace',{id,place:siteId});
+  Object.assign(state.workers[0],COAL_SITES[1],{perks:['iron','stoneListener'],stamina:1});
+  state = advance(state,85);
+  assert.equal(state.industry.mines[0].mineAt - state.time,6750);
+  assert.equal(state.industry.mines[0].pendingCoal,8);
+  assert.equal(state.workers[0].stamina,0);
+  state = importGame(JSON.stringify(state));
+  assert.ok(state);
+  state = advance(state,6750);
+  assert.equal(state.industry.mines[0].coal,8);
+  assert.equal(state.industry.mines[0].pendingCoal,undefined);
+});
+
+test('the tractor driver perk increases fuel collected without spending additional fuel', () => {
+  const state = build(act(ready(),'unlockProduction'),'tractor',tractor);
+  const vehicle = state.industry.tractors[0];
+  const driver = state.workers[0];
+  Object.assign(vehicle,HOUSE,{tank:0});
+  Object.assign(driver,HOUSE,{workRole:'driver',siteId:vehicle.id,perk:'roadCaptain'});
+  state.industry.stock.fuel = 12;
+  advanceIndustry(state,.1,()=>{});
+  assert.equal(vehicle.tank,6);
+  assert.equal(stockCount(state,'fuel'),6);
 });

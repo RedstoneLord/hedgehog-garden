@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { act, advance, canPlaceSprinkler, constructionPlots, FOREST_WORKPLACE, importGame, loadGame, newGame, orchardPlots, plotBounds, stallWorkplace, workerCharacteristics, workerWorkplace, workplaces } from '../src/game.js';
 import { hairstyles, looks } from '../src/customer-looks.js';
 import { CUSTOMERS } from '../src/customers.js';
-import { basketLimit, berryBounds, BERRY_ORCHARD, FOREST_BASKET, FOREST_ORCHARD } from '../src/orchard.js';
-import { advanceCustomers, BERRY_OFFER_DELAY, canServe, farmAvailable, farmSite, frontCustomer, GLOBAL_UPGRADES, globalUpgradePrice, landPrice, landSite, marketSite, orderPayment, PERMIT_PRICE, queueCapacity, stallPrice } from '../src/trade.js';
+import { basketLimit, berryBounds, BERRY_ORCHARD, FOREST_BASKET, FOREST_ORCHARD, HOUSE } from '../src/orchard.js';
+import { advanceCustomers, BERRY_OFFER_DELAY, canServe, farmAvailable, farmSite, frontCustomer, GLOBAL_UPGRADES, globalUpgradePrice, landPrice, landSite, marketSite, moveTradeJob, orderPayment, PERMIT_PRICE, queueCapacity, stallPrice } from '../src/trade.js';
 import { FOREST_CLEARING, riverDistance, terrainKind, TRADE_GATES, TRADE_ROADS } from '../src/terrain.js';
 
 const stallSpot = { x: 3090, y: 1350 };
@@ -519,4 +519,23 @@ test('0.3.1 storage migrates without shifting existing coordinates or changing a
   assert.equal(current.trade.stalls.length,0);
   assert.ok(['bobby','agatha','lily'].every(key => CUSTOMERS[key].offers.length >= 6));
   assert.equal(CUSTOMERS.cookie.offers[0][0],1);
+});
+
+test('stall perks speed up service and average carrying perks increase a resupply load', () => {
+  const state = withStall();
+  const stall = state.trade.stalls[0];
+  const worker = state.workers[0];
+  const customer = {id:100,phase:'queue',order:{apples:126,accepted:true}};
+  stall.customers.push(customer);
+  Object.assign(worker,{x:stall.x,y:stall.y,perk:'steady'});
+  worker.stats.handling = 5;
+  const visit = {kind:'vendor',stallId:stall.id,customerId:customer.id};
+  assert.equal(moveTradeJob(state,visit,worker,100,.1,HOUSE),false);
+  assert.equal(visit.until - state.time,(11500-5*720)*.93);
+
+  Object.assign(worker,HOUSE,{perk:'satchel'});
+  worker.stats.strength = 5;
+  const trip = {kind:'restock',stallId:stall.id,phase:'house',key:'apples'};
+  assert.equal(moveTradeJob(state,trip,worker,100,.1,HOUSE),false);
+  assert.deepEqual(trip.cargo,{key:'apples',amount:72});
 });

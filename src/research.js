@@ -1,4 +1,4 @@
-import { perkEffect } from './perks.js';
+import { movementPerks, perkEffect } from './perks.js';
 import { researchUnlocked } from './commission.js';
 import { HOUSE, isFieldCrop } from './orchard.js';
 import { adjustStock, canCraft, industryStations, nearestHome, homeStock, stockCount } from './industry.js';
@@ -317,7 +317,7 @@ export function advanceResearch(state, seconds, plan, water, earned) {
       } else if (!site.broken && (site.stock[site.fuel] ?? 0) < 5) {
         const home = nearestHome(state,site,site.fuel);
         if (home && workerAt(worker,home)) {
-          const amount = Math.min(homeStock(state,home,site.fuel),10);
+          const amount = Math.min(homeStock(state,home,site.fuel),fuelCapacity(state) - (site.stock[site.fuel] ?? 0),10 + perkEffect(worker,'fuelCarry'));
           adjustStock(state,site.fuel,-amount,home);
           worker.powerCargo = { key:site.fuel, amount };
         } else if (home) {
@@ -332,7 +332,7 @@ export function advanceResearch(state, seconds, plan, water, earned) {
   function walk(worker,target) {
     const route = worker.researchRoute;
     if (!route || route.x !== target.x || route.y !== target.y) worker.researchRoute = plan(worker,target);
-    if (worker.researchRoute) followRoute(worker,worker.researchRoute,90 + worker.stats.speed * 5,seconds,state.industry.roads);
+    if (worker.researchRoute) followRoute(worker,worker.researchRoute,(90 + worker.stats.speed * 5) * movementPerks(state,worker),seconds,state.industry.roads);
   }
   for (const site of [...sites,...state.industry.workshops.filter(site => site.electric)]) { site.power = 0; if (output[site.kind]) site.output = 0; }
   for (const net of powerNetworks(state)) {
@@ -382,7 +382,7 @@ export function advanceResearch(state, seconds, plan, water, earned) {
     const operator = atSite.get(site.id);
     if (operator && site.kind === 'generator' && site.broken) {
       site.repair = (site.repair ?? 0) + seconds;
-      if (site.repair >= (state.upgrades.includes('maintainerKit') ? 9 : 10) && researchActions.repairGenerator(state,{id:site.id})) {
+      if (site.repair >= (state.upgrades.includes('maintainerKit') ? 9 : 10) * perkEffect(operator,'repair',1) && researchActions.repairGenerator(state,{id:site.id})) {
         site.repair = 0; earned?.(operator,'operator');
       }
     } else if (site.kind === 'lab' && operator && site.power) {

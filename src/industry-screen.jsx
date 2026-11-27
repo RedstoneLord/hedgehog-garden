@@ -70,6 +70,7 @@ function Workshop({ site, state, send }) {
       </button>}
     </div>
     {site.level === 2 && !factoryReady(site) && <p>Для фабрики купи скорость, партию и склад мастерской.</p>}
+    {site.level === 3 && <p>Ёжик с подходящим перком может ускорить партию или увеличить выпуск. Работа для него — «Настраивать фабрику».</p>}
     {site.level === 3 && hasResearch(state,'retrofit') && <div className="industry-buttons">
       <p>{site.electric ? `Питание от сети · ${Math.round((site.power ?? 0)*100)}%` : 'Фабрика работает на топливе.'}</p>
       <button type="button" className="pixel-button mini" disabled={Boolean(site.batch)} onClick={() => send('retrofitFactory')}>
