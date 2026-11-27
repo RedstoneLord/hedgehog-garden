@@ -181,19 +181,6 @@
 .menu-stats dt { display: flex; align-items: center; gap: 8px; }
 .menu-stats dd { margin: 0; color: #f6ca83; overflow-wrap: anywhere; }
 
-.menu-motion.pixel-button.square {
-  position: fixed;
-  right: max(16px,env(safe-area-inset-right));
-  bottom: max(16px,env(safe-area-inset-bottom));
-  width: 44px;
-  min-height: 44px;
-  color: #ffe5b6;
-  background: #24352dee;
-  border-color: #a28b64;
-}
-.menu-pause-symbol { width: 12px; height: 14px; border-inline: 4px solid currentColor; }
-.main-menu[data-motion=off] :is(.menu-drift,.menu-art *), .main-menu[data-motion=off] .menu-art *::after { animation-play-state: paused; }
-
 @media (max-width: 799px) {
   .game-menu-toggle { top: 46px; }
   .game-menu-toggle.pixel-button.square { width: 40px; min-height: 40px; }
@@ -204,10 +191,9 @@
       linear-gradient(180deg,#20332985 0%,transparent 43%,transparent 54%,#18281ef0 87%),
       radial-gradient(ellipse at 55% 42%,#e7bb6540,transparent 70%);
   }
-  .menu-stage { padding-bottom: max(65px,calc(49px + env(safe-area-inset-bottom))); }
   .menu-stage[data-page=home] {
     padding: max(26px,env(safe-area-inset-top)) max(17px,env(safe-area-inset-right))
-      max(70px,calc(57px + env(safe-area-inset-bottom))) max(17px,env(safe-area-inset-left));
+      max(34px,env(safe-area-inset-bottom)) max(17px,env(safe-area-inset-left));
     place-items: stretch center;
   }
   .menu-stage[data-page=home] .menu-board { width: min(100%,360px); display: flex; }
@@ -223,7 +209,6 @@
   .menu-actions { width: min(100%,270px); gap: 7px; }
   .menu-play.pixel-button { min-height: 49px; }
   .menu-secondary .pixel-button { min-height: 40px; }
-  .menu-motion.pixel-button.square { right: 7px; bottom: 7px; }
 }
 @media (max-width: 360px) {
   .menu-secondary .pixel-button { gap: 4px; padding-inline: 4px; font-size: 12px; }

@@ -7,7 +7,6 @@ import logo from './menu-logo.png?inline';
 import './main-menu.css';
 
 const number = new Intl.NumberFormat('ru-RU');
-const motionKey = 'orchard-menu-motion';
 const orchardTrees = [
   [1780, 1258, 112, 'gold'], [1930, 1348, 128, 'red'], [2118, 1312, 119, 'red'],
   [2244, 1416, 106, 'gold'], [2331, 1154, 119, 'red'], [2433, 1272, 138, 'gold'],
@@ -102,27 +101,10 @@ function SaveStats({ state }) {
 
 export function MainMenu({ state, audio, onPlay, onReset, onExport }) {
   const [page, setPage] = useState('home');
-  const [motion, setMotion] = useState(() => {
-    try { return localStorage.getItem(motionKey) !== 'off'; }
-    catch { return true; }
-  });
-  const [reduceMotion, setReduceMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const primary = useRef(null);
   useEffect(() => { primary.current?.focus({ preventScroll: true }); }, [page]);
-  useEffect(() => {
-    const preference = matchMedia('(prefers-reduced-motion: reduce)');
-    const change = event => setReduceMotion(event.matches);
-    preference.addEventListener('change', change);
-    return () => preference.removeEventListener('change', change);
-  }, []);
 
-  function toggleMotion() {
-    setMotion(!motion);
-    try { localStorage.setItem(motionKey, motion ? 'off' : 'on'); }
-    catch { /* Keep the in-memory preference when storage is unavailable. */ }
-  }
-
-  return <main className="main-menu" data-motion={motion && !reduceMotion ? 'on' : 'off'} aria-labelledby="menu-title" onKeyDown={event => {
+  return <main className="main-menu" aria-labelledby="menu-title" onKeyDown={event => {
     if (page !== 'home' && event.key === 'Escape') setPage(page === 'reset' ? 'settings' : 'home');
   }}>
     <MenuArtwork/>
@@ -143,6 +125,10 @@ export function MainMenu({ state, audio, onPlay, onReset, onExport }) {
             {page === 'settings' ? <div className="menu-options">
               <SoundOption name="sound" label="Звуковые эффекты" enabled={audio.effects} onToggle={audio.toggleEffects}/>
               <SoundOption name="note" label="Музыка и звуки природы" enabled={audio.ambience} onToggle={audio.toggleAmbience}/>
+              {typeof globalThis.OrchardAndroid?.checkForUpdates === 'function' &&
+                <button type="button" className="pixel-button menu-option" onClick={() => globalThis.OrchardAndroid.checkForUpdates()}>
+                  <Glyph name="down"/>Проверить обновления
+                </button>}
               <button type="button" className="pixel-button menu-option" onClick={() => setPage('reset')}><Glyph name="axe"/>Сбросить прогресс</button>
             </div> : page === 'reset' ? <section className="menu-options" aria-label="Сброс прогресса">
               <p>Текущий сад будет удалён. Перед сбросом можно скачать сохранение.</p>
@@ -154,8 +140,5 @@ export function MainMenu({ state, audio, onPlay, onReset, onExport }) {
         </div>
       </div>
     </div>
-    {!reduceMotion && <button type="button" className="pixel-button square menu-motion" aria-label="Движение фона" aria-pressed={motion} onClick={toggleMotion}>
-      {motion ? <span className="menu-pause-symbol" aria-hidden="true"/> : <Glyph name="play"/>}
-    </button>}
   </main>;
 }

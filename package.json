@@ -1,6 +1,6 @@
 {
   "name": "itmo-m3102-game",
-  "version": "0.7.1",
+  "version": "0.7.1-hotfix.1",
   "private": true,
   "type": "module",
   "scripts": {

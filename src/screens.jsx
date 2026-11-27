@@ -49,7 +49,7 @@ function ScreenClose({ onClose, label }) {
   return <button type="button" className="pixel-button square screen-close" aria-label={label} onClick={onClose}><Glyph name="close"/></button>;
 }
 
-function TreeDiagram({ state, visible, selected, onSelect }) {
+function TreeDiagram({ state, visible, selected, onSelect, onFocusNode }) {
   const status = id => id === 'root' ? 'done' : upgradeStatus(state, id);
   return <div className="tree-canvas" style={{ width: graphWidth, height: graphHeight }} aria-label="Ветви дерева улучшений">
     <svg className="tree-wires" viewBox={`0 0 ${graphWidth} ${graphHeight}`} aria-hidden="true">
@@ -72,6 +72,7 @@ function TreeDiagram({ state, visible, selected, onSelect }) {
       const label = root ? 'Картошка' : UPGRADES[id].name;
       return <Tooltip key={id} label={label} detail={UPGRADES[id]?.desc}><button type="button" aria-label={label} aria-pressed={selected === id}
         className={`tree-diamond ${point.branch} ${status(id)}`} onClick={event => onSelect(event, id)}
+        onFocus={event => onFocusNode(event, point)}
         style={{ left: `${100 * point.x / graphWidth}%`, top: `${100 * point.y / graphHeight}%` }}>
         {root ? <HedgeSprite hedge={GUIDE}/> : <Glyph name={UPGRADES[id].icon}/>}
       </button></Tooltip>;
@@ -81,10 +82,19 @@ function TreeDiagram({ state, visible, selected, onSelect }) {
 
 function TreePanorama({ state, visible, selected, select }) {
   const panorama = usePanorama({ bounds: graphBounds, initial: initialTreeCamera, fit: 'contain' });
+  function revealFocusedNode(event, point) {
+    if (!event.currentTarget.matches(':focus-visible')) return;
+    const { x, y } = panorama.centerPoint;
+    const { width, height } = panorama.viewSize;
+    const margin = 58;
+    if ((Math.abs(point.x - x) + margin) * panorama.zoom > width / 2
+      || (Math.abs(point.y - y) + margin) * panorama.zoom > height / 2) panorama.focus({ x:point.x, y:point.y });
+  }
   return <div className="tree-stage">
     <div {...panorama.surface} className="tree-viewport" role="region" aria-label="Панорама дерева улучшений">
       <div className="tree-world" style={panorama.scene}>
-        <TreeDiagram state={state} visible={visible} selected={selected} onSelect={(event, id) => { if (!panorama.dragged(event)) select(id); }}/>
+        <TreeDiagram state={state} visible={visible} selected={selected} onFocusNode={revealFocusedNode}
+          onSelect={(event, id) => { if (!panorama.dragged(event)) select(id); }}/>
       </div>
     </div>
     <PanoramaControls panorama={panorama} label="дерево улучшений" resetLabel="Вернуться к началу дерева"/>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1.1
+
+- Removed undiscovered feature names from the bulk job assignment preview.
+- Fixed the global upgrade tree viewport and keyboard focus when zoomed in.
+- Android checks for new releases while the game is open, retries temporary failures, and offers a manual check in Settings.
+- Removed the main-menu animation button. The background respects the device’s reduced-motion setting.
+
+See the [0.7.1.1 release notes](versions/0.7.1.1/RELEASE.md).
+
 ## 0.7.1
 
 - Redesigned the main menu with an animated orchard and an original pixel-art logo for «Ёжиковый сад». Background motion can be paused and follows the device’s reduced-motion setting.

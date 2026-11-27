@@ -43,6 +43,7 @@ public final class GardenActivity extends Activity {
     @Override public void onCreate(Bundle previous) {
         super.onCreate(previous);
         saves = new SaveBridge(new AtomicFile(new File(getFilesDir(), "orchard-save.json")));
+        updates = new GitHubUpdates(this);
         web = new WebView(this);
         web.setBackgroundColor(0xff34293a);
         WebSettings settings = web.getSettings();
@@ -94,16 +95,17 @@ public final class GardenActivity extends Activity {
         });
         setContentView(web);
         web.loadUrl(GAME_URL);
-        updates = new GitHubUpdates(this);
     }
 
     @Override protected void onResume() {
         super.onResume();
         web.onResume();
-        updates.check();
+        resumePendingInstall();
+        updates.resume();
     }
 
     @Override protected void onPause() {
+        updates.pause();
         flushSave(null);
         web.onPause();
         super.onPause();
@@ -135,6 +137,13 @@ public final class GardenActivity extends Activity {
             }
             return;
         }
+        flushSave(() -> install(release));
+    }
+
+    private void resumePendingInstall() {
+        if (pendingInstall == null || !getPackageManager().canRequestPackageInstalls()) return;
+        GitHubUpdates.Release release = pendingInstall;
+        pendingInstall = null;
         flushSave(() -> install(release));
     }
 
@@ -172,11 +181,7 @@ public final class GardenActivity extends Activity {
                 message("Не удалось сохранить файл.");
             }
         } else if (request == INSTALL_PERMISSION) {
-            GitHubUpdates.Release release = pendingInstall;
-            pendingInstall = null;
-            if (release != null && getPackageManager().canRequestPackageInstalls()) {
-                flushSave(() -> install(release));
-            }
+            resumePendingInstall();
         }
     }
 
@@ -185,6 +190,9 @@ public final class GardenActivity extends Activity {
     }
 
     final class SaveBridge {
+        @JavascriptInterface public void checkForUpdates() {
+            runOnUiThread(updates::checkNow);
+        }
         private final AtomicFile save;
         private String lastWritten;
 

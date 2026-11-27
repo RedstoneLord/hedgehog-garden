@@ -650,7 +650,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         <label>Имя ёжика <input value={search} onChange={event => setSearch(event.target.value)}/></label>
         <GameSelect label="Фильтр по месту" value={siteFilter} options={[{value:'all',label:'Все места'},...places.map(place => ({value:place.id,label:place.label}))]} onChange={filterSite}/>
         <GameSelect label="Фильтр по работе" value={roleFilter} options={[{value:'all',label:'Любая работа'},...Array.from(new Set(state.workers.map(worker => worker.workRole)), role => ({value:role,label:workRoleLabel(null,role)}))]} onChange={filterRole}/>
-        <GameSelect label="Фильтр по статусу" value={statusFilter} options={[{value:'all',label:'Все статусы'},{value:'busy',label:'На курсе или ждут перевода'},{value:'favorites',label:'Избранные'}]} onChange={filterStatus}/>
+        <GameSelect label="Фильтр по статусу" value={statusFilter} options={[{value:'all',label:'Все статусы'},{value:'busy',label:'Заняты или ждут перевода'},{value:'favorites',label:'Избранные'}]} onChange={filterStatus}/>
         <button type="button" className="pixel-button mini" disabled={!availableIds.length} onClick={() => setSelected([...new Set([...selected,...availableIds])])}>Выбрать видимых · {availableIds.length}</button>
         <div className="crew-selection">{roster.map(worker => <label key={worker.id}>
           <input type="checkbox" checked={selected.includes(worker.id)}
@@ -673,7 +673,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         </div>)}
         {apply && <section className="research-card" aria-label="Проверка назначения">
           <p>{apply.name ? `Вернуть назначения из «${apply.name}»?` : `${apply.ids.length} ёж. · ${places.find(place => place.id === apply.place)?.label} · ${workRoleLabel(apply.place,apply.role)}`}</p>
-          <p>Перевозчики, родители и ученики сменят работу, когда освободятся.</p>
+          <p>Занятые ёжики сменят работу, когда освободятся.</p>
           <button type="button" className="pixel-button mini" onClick={() => { dispatch('assignCrew',apply); confirmApply(null); }}>Применить</button>{' '}
           <button type="button" className="pixel-button mini" onClick={() => confirmApply(null)}>Отмена</button>
         </section>}

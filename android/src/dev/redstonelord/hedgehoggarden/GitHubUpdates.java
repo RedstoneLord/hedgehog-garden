@@ -5,6 +5,8 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import java.io.ByteArrayOutputStream;
@@ -32,16 +34,22 @@ final class GitHubUpdates {
     private static final String TAG = "GardenUpdates";
     private static final int MAX_APK = 50 * 1024 * 1024;
     private static final int MAX_RELEASE = 2 * 1024 * 1024;
-    private static final long CHECK_INTERVAL = 30 * 60 * 1000L;
-    private static final long RETRY_INTERVAL = 5 * 60 * 1000L;
+    private static final long CHECK_INTERVAL = 15 * 60 * 1000L;
+    private static final long RETRY_INTERVAL = 2 * 60 * 1000L;
     private static final Pattern RELEASE_TAG = Pattern.compile("v?(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,2})\\.(0|[1-9][0-9]{0,2})(?:\\.([1-9][0-9]?))?");
     private static final long LAST_LEGACY_ANDROID_CODE = 5002;
     private static final Pattern SHA256 = Pattern.compile("sha256:[0-9a-f]{64}");
 
     private final GardenActivity activity;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable poll = () -> check(false);
     private long nextCheck;
+    private long nextPrompt;
+    private boolean resumed;
     private boolean checking;
+    private boolean reportResult;
+    private Release ready;
     private AlertDialog prompt;
 
     GitHubUpdates(GardenActivity activity) {
@@ -83,7 +91,8 @@ final class GitHubUpdates {
         JSONArray assets = result.optJSONArray("assets");
         if (assets == null) return null;
         for (int i = 0; i < assets.length(); ++i) {
-            JSONObject asset = assets.getJSONObject(i);
+            JSONObject asset = assets.optJSONObject(i);
+            if (asset == null) continue;
             if (!filename.equals(asset.optString("name")) || !"uploaded".equals(asset.optString("state"))) continue;
             String expected = "https://github.com/" + REPO + "/releases/download/" + tag + "/" + filename;
             if (!expected.equals(asset.optString("browser_download_url"))) continue;
@@ -95,11 +104,44 @@ final class GitHubUpdates {
         return null;
     }
 
-    void check() {
+    static Release newestRelease(JSONArray releases, long installed) throws Exception {
+        Release result = null;
+        for (int i = 0; i < releases.length(); i++) {
+            JSONObject entry = releases.optJSONObject(i);
+            if (entry == null) continue;
+            Release candidate = newerRelease(entry, result == null ? installed : result.code);
+            if (candidate != null) result = candidate;
+        }
+        return result;
+    }
+
+    void resume() {
+        resumed = true;
+        check(false);
+    }
+
+    void pause() {
+        resumed = false;
+        main.removeCallbacks(poll);
+    }
+
+    void checkNow() {
+        activity.message("Проверяем обновления…");
+        check(true);
+    }
+
+    private void check(boolean manual) {
+        if (!resumed || executor.isShutdown()) return;
+        reportResult |= manual;
+        if (checking) return;
         long now = SystemClock.elapsedRealtime();
-        if (checking || nextCheck > now || executor.isShutdown()) return;
+        if (!manual && nextCheck > now) {
+            if (ready != null && nextPrompt <= now) showPrompt();
+            schedule();
+            return;
+        }
+        main.removeCallbacks(poll);
         checking = true;
-        nextCheck = now + CHECK_INTERVAL;
         executor.execute(() -> {
             Release downloaded = null;
             boolean failed = false;
@@ -111,44 +153,82 @@ final class GitHubUpdates {
             }
             Release release = downloaded;
             boolean retry = failed;
-            activity.runOnUiThread(() -> {
+            main.post(() -> {
                 checking = false;
-                if (retry) nextCheck = SystemClock.elapsedRealtime() + RETRY_INTERVAL;
-                if (release == null || activity.isFinishing() || activity.isDestroyed()) return;
-                prompt = new AlertDialog.Builder(activity)
-                    .setTitle("Обновление " + release.version)
-                    .setMessage("Новая версия уже скачана. Сохранение останется на этом устройстве.")
-                    .setPositiveButton("Установить", (dialog, button) -> activity.offerInstall(release))
-                    .setNegativeButton("Позже", null)
-                    .show();
+                if (executor.isShutdown()) return;
+                long finished = SystemClock.elapsedRealtime();
+                nextCheck = finished + (retry ? RETRY_INTERVAL : CHECK_INTERVAL);
+                boolean showResult = reportResult;
+                reportResult = false;
+                if (release != null && (ready == null || release.code != ready.code)) {
+                    nextPrompt = 0;
+                    if (prompt != null) prompt.dismiss();
+                }
+                if (!retry) ready = release;
+                if (resumed) {
+                    if (ready != null && (showResult || nextPrompt <= finished)) showPrompt();
+                    else if (showResult) activity.message(retry ? "Не удалось проверить обновления. Попробуй ещё раз."
+                        : "Установлена последняя версия.");
+                }
+                schedule();
             });
         });
     }
 
+    private void showPrompt() {
+        if (activity.isFinishing() || activity.isDestroyed() || prompt != null && prompt.isShowing()) return;
+        Release release = ready;
+        prompt = new AlertDialog.Builder(activity)
+            .setTitle("Обновление " + release.version)
+            .setMessage("Новая версия уже скачана. Сохранение останется на этом устройстве.")
+            .setPositiveButton("Установить", (dialog, button) -> {
+                postponePrompt();
+                activity.offerInstall(release);
+            })
+            .setNegativeButton("Позже", (dialog, button) -> postponePrompt())
+            .setOnCancelListener(dialog -> postponePrompt())
+            .show();
+    }
+
+    private void postponePrompt() {
+        nextPrompt = SystemClock.elapsedRealtime() + CHECK_INTERVAL;
+        schedule();
+    }
+
+    private void schedule() {
+        main.removeCallbacks(poll);
+        if (resumed && !checking) {
+            long now = SystemClock.elapsedRealtime();
+            long next = ready != null && nextPrompt > now ? Math.min(nextCheck, nextPrompt) : nextCheck;
+            main.postDelayed(poll, Math.max(0, next - now));
+        }
+    }
+
     void close() {
+        pause();
         if (prompt != null) prompt.dismiss();
         executor.shutdownNow();
     }
 
     private Release downloadNewer() throws Exception {
         long installed = versionCode(installedPackage());
-        URL url = new URL("https://api.github.com/repos/" + REPO + "/releases/latest");
+        URL url = new URL("https://api.github.com/repos/" + REPO + "/releases?per_page=20");
         HttpURLConnection request = connection(url);
         request.setRequestProperty("Accept", "application/vnd.github+json");
+        request.setRequestProperty("Cache-Control", "no-cache");
         Release release;
         try {
             int status = request.getResponseCode();
-            if (status == 404) return null;
             if (status != 200) throw new IOException("GitHub Releases returned HTTP " + status);
             ByteArrayOutputStream json = new ByteArrayOutputStream();
             try (InputStream input = request.getInputStream()) {
                 copy(input, json, MAX_RELEASE);
             }
-            release = newerRelease(new JSONObject(json.toString("UTF-8")), installed);
+            release = newestRelease(new JSONArray(json.toString("UTF-8")), installed);
         } finally {
             request.disconnect();
         }
-        if (release == null || isVerified(release)) return release;
+        if (release == null || isVerified(release) && matchesDigest(updateFile(), release.digest)) return release;
         File temporary = File.createTempFile("update-", ".apk", activity.getCacheDir());
         try {
             download(release, temporary);
@@ -199,9 +279,21 @@ final class GitHubUpdates {
         throw new IOException("Too many update redirects");
     }
 
+    private static boolean matchesDigest(File file, String expected) throws Exception {
+        if (expected.isEmpty()) return true;
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = Files.newInputStream(file.toPath())) {
+            byte[] buffer = new byte[16384];
+            int bytes;
+            while ((bytes = input.read(buffer)) != -1) digest.update(buffer, 0, bytes);
+        }
+        return expected.equals("sha256:" + hex(digest.digest()));
+    }
+
     private static HttpURLConnection connection(URL url) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setInstanceFollowRedirects(false);
+        connection.setUseCaches(false);
         connection.setConnectTimeout(9000);
         connection.setReadTimeout(15000);
         connection.setRequestProperty("User-Agent", "HedgehogGarden-Android");
