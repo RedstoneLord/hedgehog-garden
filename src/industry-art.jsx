@@ -1,3 +1,4 @@
+import { tintFoliage } from './terrain.js';
 import { HedgeSprite, HouseArt } from './art.jsx';
 
 export function MountainArt({ mine }) {
@@ -19,14 +20,15 @@ export function MountainArt({ mine }) {
   </svg>;
 }
 
-export function WheatArt({ ripe, dry }) {
+export function WheatArt({ ripe, dry, point }) {
+  const palette = tintFoliage(ripe ? { stalk:'#af762e', ear:'#e6ac45' } : { stalk:'#66804c', ear:'#90a261' }, ['stalk','ear'], point);
   return <svg viewBox="0 0 32 30" shapeRendering="crispEdges" aria-hidden="true">
     <path fill={dry ? '#806b47' : '#5b583a'} d="M3 21h25v3h3v3H1v-3h2z"/>
     {[6, 13, 20, 26].map((x, i) => {
       const top = [4, 1, 5, 8][i] + (ripe ? 0 : 6);
       return <g key={x}>
-        <path fill={ripe ? '#af762e' : '#66804c'} d={`M${x} ${top}h2v24h-2z`}/>
-        <path fill={ripe ? '#e6ac45' : '#90a261'} d={`M${x-2} ${top+2}h6v3h-1v3h-4v-2h-1z M${x-2} ${top+9}h6v3h-2v3h-2v-2h-2z`}/>
+        <path fill={palette.stalk} d={`M${x} ${top}h2v24h-2z`}/>
+        <path fill={palette.ear} d={`M${x-2} ${top+2}h6v3h-1v3h-4v-2h-1z M${x-2} ${top+9}h6v3h-2v3h-2v-2h-2z`}/>
         {ripe && <path fill="#ffe086" d={`M${x} ${top+2}h3v2h-3z M${x-1} ${top+9}h3v2h-3z`}/>}
       </g>;
     })}

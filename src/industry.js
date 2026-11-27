@@ -10,7 +10,7 @@ export const JAR_PRICE = 14;
 export const ROAD_PRICE = 350;
 export const BUILDINGS = {
   workshop: { label: 'Мастерская', icon: 'table', price: 1800, growth: 1.65 },
-  mine: { label: 'Угольная шахта', icon: 'soil', price: 2900, growth: 1.65 },
+  mine: { label: 'Угольная шахта', icon: 'coal', price: 2900, growth: 1.65 },
   tractor: { label: 'Красный трактор', icon: 'fastBasket', price: 3600, growth: 1.7 },
   house: { label: 'Дом для ёжиков', icon: 'bed', price: 1800, growth: 1.45 },
 };
@@ -20,12 +20,12 @@ export const COAL_SITES = [
 export const GOODS = {
   apples: { label: 'Яблоки', icon: 'apple' }, berries: { label: 'Ягоды', icon: 'berry' },
   wheat: { label: 'Пшеница', icon: 'wheat' }, flour: { label: 'Мука', icon: 'flour' },
-  biofuel: { label: 'Биотопливо', icon: 'flower' },
-  coal: { label: 'Уголь', icon: 'soil' }, provisions: { label: 'Дорожный паёк', icon: 'bread' },
+  biofuel: { label: 'Биотопливо', icon: 'biofuel' },
+  coal: { label: 'Уголь', icon: 'coal' }, provisions: { label: 'Дорожный паёк', icon: 'bread' },
   jars: { label: 'Банки', icon: 'jar' }, fuel: { label: 'Топливо', icon: 'fuel' },
-  slices: { label: 'Яблочные дольки', icon: 'apple', value: 7 },
+  slices: { label: 'Яблочные дольки', icon: 'slices', value: 7 },
   compote: { label: 'Яблочный компот', icon: 'compote', value: 9 },
-  puree: { label: 'Ягодное пюре', icon: 'berry', value: 10 },
+  puree: { label: 'Ягодное пюре', icon: 'puree', value: 10 },
   bread: { label: 'Хлеб', icon: 'bread', value: 13 },
   pie: { label: 'Яблочный пирог', icon: 'pie', value: 19 },
   jam: { label: 'Ягодное варенье', icon: 'jam', value: 19 },
@@ -52,7 +52,7 @@ const buildingGroups = { workshop: 'workshops', mine: 'mines', house: 'houses', 
 
 export function newIndustry() {
   return { unlocked: false, wheatSeeds: 0, stock: {}, houses: [], workshops: [], mines: [], tractors: [], roads: [],
-    knownProducts: [], deliveries: 0, logisticsVersion: 1, priority: {}, paused: {} };
+    knownProducts: [], knownGoods: [], deliveries: 0, logisticsVersion: 1, priority: {}, paused: {} };
 }
 export const housingCapacity = state => 10 + 5 * state.industry.houses.length;
 export const buildingPrice = (state, kind) => {
@@ -68,8 +68,29 @@ export function homeStock(state, home, key) {
   if (home?.id) return home.stock?.[key] ?? 0;
   return Math.max(0, stockCount(state, key) - state.industry.houses.reduce((sum, site) => sum + (site.stock?.[key] ?? 0), 0));
 }
+export function rememberGood(state, key) {
+  if (key === 'apples' || !Object.hasOwn(GOODS, key)) return;
+  const known = state.industry.knownGoods ??= [];
+  if (!known.includes(key)) known.push(key);
+}
+
+export function discoveredGoods(state) {
+  const known = new Set(['apples', ...(state.industry.knownGoods ?? []), ...state.industry.knownProducts]);
+  if (state.trade.berryKnown || state.trade.berryFarm) known.add('berries');
+  if (state.industry.unlocked) known.add('jars');
+  if (state.industry.unlocked && state.trade.berryFarm) known.add('wheat');
+  if (state.industry.mines.length) known.add('coal');
+  if (hasResearch(state, 'biofuel')) known.add('biofuel');
+
+  const storage = [...state.industry.workshops.flatMap(site => [site.inputs, site.output]),
+    ...state.trade.stalls.map(stall => stall.stock), ...researchSites(state).map(site => site.stock), state.scientist?.bank, state.scientist?.intake];
+  if (state.industry.mines.some(mine => mine.fuel > 0) || state.industry.tractors.some(tractor => tractor.tank > 0)) known.add('fuel');
+  return Object.keys(GOODS).filter(key => known.has(key) || stockCount(state, key) > 0 || storage.some(stock => (stock?.[key] ?? 0) > 0));
+}
+
 export function adjustStock(state, key, amount, home) {
   if (!amount) return;
+  if (amount > 0 || stockCount(state, key) > 0) rememberGood(state, key);
   if (home?.id) {
     home.stock ??= {};
     home.stock[key] = (home.stock[key] ?? 0) + amount;
@@ -174,10 +195,14 @@ function startBatch(state, shop, key, method, worker) {
   const recipe = RECIPES[key];
   for (const [item, qty] of Object.entries(recipe.needs)) {
     const local = Math.min(qty, shop.inputs[item] ?? 0);
+    if (local > 0) rememberGood(state, item);
     shop.inputs[item] = (shop.inputs[item] ?? 0) - local;
     if (local < qty) adjustStock(state, item, local - qty, nearestHome(state, shop, item));
   }
-  if (needsFuel) shop.inputs.fuel--;
+  if (needsFuel) {
+    rememberGood(state, 'fuel');
+    shop.inputs.fuel--;
+  }
   if (method === 'factory' && key !== 'fuel') shop.fuelCoast = needsFuel;
   const speed = (method === 'factory' ? 2 : method === 'worker' ? 1.18 : 1) *
     (1 + .25 * tuning(shop, 'speed')) * (method === 'factory' && hasResearch(state,'factoryEfficiency') ? 1.15 : 1) * (state.upgrades.includes('batchCraft') ? 1.25 : 1) *
@@ -596,6 +621,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
       const { key, method } = shop.batch;
       const amount = shop.batch.amount ?? RECIPES[key].amount + Number(state.upgrades.includes('largerBatches'));
       shop.output[key] = (shop.output[key] ?? 0) + amount;
+      rememberGood(state, key);
       if (GOODS[key].value && !state.industry.knownProducts.includes(key)) state.industry.knownProducts.push(key);
       if (method === 'manual') notify(state, `${GOODS[key].label} +${amount}.`, GOODS[key].icon);
       state.xpProgress += amount * 2;
@@ -631,6 +657,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     if (mine.mineAt && mine.mineAt <= state.time) {
       const starter = state.workers.find(worker => worker.id === mine.minerId);
       mine.coal += mine.pendingCoal ?? baseCoal(mine);
+      rememberGood(state, 'coal');
       mine.mineAt = null;
       delete mine.pendingCoal;
       delete mine.minerId;
@@ -735,6 +762,7 @@ export function validIndustry(industry) {
     && industry.paused && typeof industry.paused === 'object' && !Array.isArray(industry.paused)
     && Object.values(industry.paused).every(value => typeof value === 'boolean') && Array.isArray(industry.knownProducts)
     && industry.knownProducts.every(key => PRODUCED_GOODS.includes(key))
+    && Array.isArray(industry.knownGoods) && industry.knownGoods.every(key => Object.hasOwn(GOODS, key))
     && Object.entries(buildingGroups).every(([kind, group]) => Array.isArray(industry[group]) && industry[group].every(site => validPoint(site)
       && typeof site.id === 'string' && site.kind === kind && validQty(site.number) && (site.kind !== 'house' || site.stock === undefined || validStock(site.stock))))
     && industry.workshops.every(shop => [1, 2, 3].includes(shop.level) && Object.hasOwn(RECIPES, shop.recipe)

@@ -1,3 +1,4 @@
+import { estateMapAreas, estateMapSites, visibleEstateLinks } from './estate-map.js';
 import landscape from './pixel-landscape.png?inline';
 import { SCIENTIST_GOODS, scientistStall, scientistInTransit } from './commission.js';
 import { hasResearch, powerNetworks, researchSites, stationLabel } from './research.js';
@@ -6,7 +7,7 @@ import { GameSelect } from './game-select.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './art.jsx';
 import { IndustryArt } from './industry-art.jsx';
-import { BUILDINGS, buildingPrice, canCraft, factoryReady, GOODS, homeId, homesFor, homeStock, housingCapacity, incomingGoods, industryStations, JAR_PRICE, PRODUCTION_PRICE, RECIPES, ROAD_PRICE, stationCapacity, stationUpgradePrice, STATION_UPGRADES, stockCount, upgradeWorkshopPrice } from './industry.js';
+import { BUILDINGS, buildingPrice, canCraft, discoveredGoods, factoryReady, GOODS, homeId, homesFor, homeStock, housingCapacity, incomingGoods, industryStations, JAR_PRICE, PRODUCTION_PRICE, RECIPES, ROAD_PRICE, stationCapacity, stationUpgradePrice, STATION_UPGRADES, stockCount, upgradeWorkshopPrice } from './industry.js';
 import { orchardName } from './orchard.js';
 import { plotBounds } from './game.js';
 import { soilRate } from './siting.js';
@@ -48,8 +49,8 @@ function Workshop({ site, state, send }) {
   return <>
     {site.automatic === false && <p className="shortage">Автоматическая смена на паузе. Ручное приготовление доступно.</p>}
     <div className="industry-recipe"><GameSelect label="Рецепт" value={site.recipe} onChange={key => send('chooseRecipe', { key })}
-      options={Object.entries(RECIPES).map(([key, item]) => ({ value: key, disabled: site.level < item.level || key === 'biofuel' && !hasResearch(state,key),
-        label: GOODS[key].label + (site.level < item.level ? ' · мастерская II' : '') }))}/></div>
+      options={Object.entries(RECIPES).filter(([key, item]) => key === site.recipe || site.level >= item.level && (key !== 'biofuel' || hasResearch(state,key)))
+        .map(([key]) => ({ value: key, label: GOODS[key].label }))}/></div>
     <div className="industry-ingredients">{Object.entries(recipe.needs).map(([item, qty]) => (
       <Tooltip key={item} label={GOODS[item].label} detail={`На станции ${site.inputs[item] ?? 0} · в домах ${stockCount(state, item)}`}>
         <span tabIndex={0} className={(site.inputs[item] ?? 0) < qty ? 'shortage' : ''}><Good item={item} qty={qty}/> · на месте {site.inputs[item] ?? 0}</span>
@@ -104,78 +105,105 @@ function StatusBoard({ state, onFocus }) {
   </button>)}</div>;
 }
 
-const zoneLabels = { home:'Жильё', garden:'Сады и фермы', stall:'Рынок', production:'Производство', research:'Исследования и сеть' };
+const zoneColors = { home:'#f2aa6a', garden:'#d2f293', stall:'#f6d685', production:'#f68f7c', research:'#8aeeec' };
 const categoryGoods = {
-  all:Object.keys(GOODS), crops:['apples','berries','wheat'], ingredients:['flour','jars','provisions'],
-  outputs:Object.keys(GOODS).filter(key => GOODS[key].value), fuel:['coal','fuel','biofuel'],
+  all:['Все', Object.keys(GOODS)], crops:['Урожай', ['apples','berries','wheat']],
+  ingredients:['Ингредиенты', ['flour','jars','provisions']], outputs:['Продукты', Object.keys(GOODS).filter(key => GOODS[key].value)],
+  fuel:['Топливо', ['coal','fuel','biofuel']],
 };
 const quantity = amounts => Object.values(amounts).reduce((sum,count) => sum + count,0);
+
 function GardenOverview({ state, onFocus }) {
-  const [area, setArea] = useState('garden');
+  const [selected, setArea] = useState('garden');
   const [zoom, setZoom] = useState(1);
   const [power, showPower] = useState(false);
+  const [paths, showPaths] = useState(true);
   const [center, setCenter] = useState({x:WORLD.x + WORLD.width/2,y:WORLD.y + WORLD.height/2});
+  const areas = estateMapAreas(state);
+  const area = areas[selected] ? selected : 'garden';
+  const labels = { home:'Жильё', garden:state.trade.berryFarm ? 'Сады и фермы' : 'Сады', stall:'Лавки', production:'Производство', research:areas.power ? 'Исследования и сеть' : 'Исследования' };
+  const mapSites = estateMapSites(state, areas);
+  const links = visibleEstateLinks(state, mapSites);
+  const networks = power && areas.power ? powerNetworks(state) : [];
   const zones = {
-    home:homesFor(state).map(home => ({...home,label:home.id ? `Дом ${home.number}` : 'Первый дом', status:`Запасы · ${number.format(Object.keys(GOODS).reduce((sum,key) => sum + homeStock(state,home,key),0))}`})),
-    garden:state.orchards.map(plot => ({...plot.basket,id:plot.id,label:orchardName(plot.id),status:`Готовых корзин · ${plot.ready.length}`, workers:state.workers.filter(worker => worker.orchardId === plot.id)})),
-    stall:state.trade.stalls.map((stall,index) => ({...stall,id:`stall:${stall.id}`,label:`Лавка ${index+1}`,status:`В очереди · ${stall.customers.filter(customer => customer.phase === 'queue').length}`,workers:state.workers.filter(worker => worker.stallId === stall.id)})),
-    production:industryStations(state).filter(site => site.kind !== 'house').map(site => ({...site,label:`${BUILDINGS[site.kind].label} ${site.number}`,
+    home:mapSites.home.map(({site,id}) => ({...site,id,label:site.id ? `Дом ${site.number}` : 'Первый дом',
+      status:`Запасы · ${number.format(Object.keys(GOODS).reduce((sum,key) => sum + homeStock(state,site,key),0))}`})),
+    garden:mapSites.garden.map(({site,id,orchard}) => ({...site,id,label:orchardName(id),
+      status:`Готовых корзин · ${orchard.ready.length}`, workers:state.workers.filter(worker => worker.orchardId === id)})),
+    stall:mapSites.stall.map(({site,id},index) => ({...site,id,label:`Лавка ${index+1}`,
+      status:`В очереди · ${site.customers.filter(customer => customer.phase === 'queue').length}`, workers:state.workers.filter(worker => worker.stallId === site.id)})),
+    production:(areas.production ? [...mapSites.production.map(({site}) => site), ...state.industry.tractors] : []).map(site => ({
+      ...site,label:`${site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label} ${site.number}`,
       status:site.automatic === false ? 'На паузе' : site.batch || site.trip || site.mineAt ? 'В работе' : 'Ожидает',
       workers:state.workers.filter(worker => worker.siteId === site.id)})),
-    research:researchSites(state).map(site => ({...site,label:stationLabel(site),status:site.broken ? 'Требуется ремонт' : site.kind === 'generator' ? `Мощность · ${site.output ?? 0}` : `Питание · ${Math.round((site.power ?? 0)*100)}%`,
+    research:mapSites.research.map(({site}) => ({...site,label:stationLabel(site),
+      status:site.broken ? 'Требуется ремонт' : !areas.power ? '' : site.kind === 'generator' ? `Мощность · ${site.output ?? 0}` : `Питание · ${Math.round((site.power ?? 0)*100)}%`,
       workers:state.workers.filter(worker => worker.siteId === site.id)})),
   };
+  const names = new Map(Object.values(zones).flat().map(site => [site.id, site.label]));
   const width = WORLD.width/zoom, height = WORLD.height/zoom;
   const x = Math.max(WORLD.x,Math.min(WORLD.x + WORLD.width-width,center.x-width/2));
   const y = Math.max(WORLD.y,Math.min(WORLD.y + WORLD.height-height,center.y-height/2));
   const map = useRef(null);
   const start = useRef(null);
-  const colors = {home:'#f2aa6a',garden:'#d2f293',stall:'#f6d685',production:'#f68f7c',research:'#8aeeec'};
   return <section className="pixel-window industry-panel garden-overview"><h3>Карта хозяйства</h3>
     <div className="industry-buttons">
       <button type="button" className="pixel-button mini" disabled={zoom === 1} onClick={() => setZoom(Math.max(1,zoom-.5))} aria-label="Отдалить сводку">−</button>
       <button type="button" className="pixel-button mini" disabled={zoom === 4} onClick={() => setZoom(Math.min(4,zoom+.5))} aria-label="Приблизить сводку">+</button>
-      <button type="button" className="pixel-button mini" aria-pressed={power} onClick={() => showPower(!power)}>Схема питания</button>
+      {links.length > 0 && <button type="button" className="pixel-button mini" aria-pressed={paths} onClick={() => showPaths(!paths)}><Glyph name="track"/> Маршруты ёжиков</button>}
+      {areas.power && <button type="button" className="pixel-button mini" aria-pressed={power} onClick={() => showPower(!power)}><Glyph name="speed"/> Схема питания</button>}
     </div>
-    <svg ref={map} className="industry-minimap" viewBox={`${x} ${y} ${width} ${height}`} role="img" aria-label="Карта построек и участков"
+    <svg ref={map} className="industry-minimap" viewBox={`${x} ${y} ${width} ${height}`} role="group" aria-label="Карта построек и участков"
       onPointerDown={event => { start.current = {x:event.clientX,y:event.clientY,worldX:x + width/2,worldY:y+height/2}; event.currentTarget.setPointerCapture(event.pointerId); }}
       onPointerMove={event => {
         if (!start.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
         const bounds = map.current.getBoundingClientRect();
-        setCenter({x:start.current.worldX + (start.current.x-event.clientX)*width/bounds.width,y:start.current.worldY + (start.current.y-event.clientY)*height/bounds.height});
+        const scale = Math.min(bounds.width / width, bounds.height / height);
+        setCenter({ x:start.current.worldX + (start.current.x - event.clientX) / scale,
+          y:start.current.worldY + (start.current.y - event.clientY) / scale });
       }} onLostPointerCapture={() => { start.current = null; }}>
       <image href={landscape} x={WORLD.x} y={WORLD.y} width={WORLD.width} height={WORLD.height} opacity=".55"/>
-      {power && powerNetworks(state).flatMap(net => net.links.map(([a,b]) => <line key={a.id+b.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={colors.research} strokeWidth={26}/>))}
+      {networks.flatMap(net => net.links.map(([a,b]) => <line key={a.id+b.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="estate-wire"/>))}
+      {paths && links.map(link => {
+        const routeLabel = `${names.get(link.from)} ↔ ${names.get(link.to)}`;
+        return <Tooltip key={link.from+'→'+link.to} label={routeLabel}>
+          <polyline className="estate-walk" tabIndex={0} aria-label={routeLabel}
+            points={link.points.map(({x,y}) => `${x},${y}`).join(' ')}/>
+        </Tooltip>;
+      })}
       {Object.entries(zones).flatMap(([kind,points]) => points.map((site,index) => <circle key={kind+index} cx={site.x} cy={site.y} r={(kind === area ? 70 : 46)/Math.sqrt(zoom)}
-        fill={colors[kind]} opacity={kind === area ? 1 : .58} stroke="#30263b" strokeWidth={18/zoom}/>))}
+        fill={zoneColors[kind]} opacity={kind === area ? 1 : .58} stroke="#30263b" strokeWidth={18/zoom}/>))}
     </svg>
-    <div className="industry-buttons">{Object.entries(zoneLabels).map(([key,label]) => <button className="pixel-button mini" key={key} type="button"
-      aria-pressed={area === key} onClick={() => { setArea(key); if (zones[key][0]) setCenter(zones[key][0]); }}><i className="zone-key" style={{backgroundColor:colors[key]}}/>{label}</button>)}</div>
+    <div className="industry-buttons">{Object.entries(labels).filter(([key]) => areas[key]).map(([key,label]) => <button className="pixel-button mini" key={key} type="button"
+      aria-pressed={area === key} onClick={() => { setArea(key); if (zones[key][0]) setCenter(zones[key][0]); }}><i className="zone-key" style={{backgroundColor:zoneColors[key]}}/>{label}</button>)}</div>
     <div className="industry-board">{zones[area].map((site,index) => <button key={site.id ?? index} className="pixel-button" type="button" onClick={() => onFocus(site)}>
       <span>{site.label}</span><small>{site.status}{site.workers ? ` · Ёжиков ${site.workers.length}` : ''}</small>
     </button>)}</div>
-    {power && powerNetworks(state).map(net => <p key={net.nodes[0].id}>Мощность {Math.round(net.nodes[0].grid?.supply ?? 0)} / {net.nodes[0].grid?.demand ?? 0} · Заряд {Math.round(net.nodes.reduce((sum,site) => sum + (site.charge ?? 0),0))}</p>)}
+    {networks.map(net => <p key={net.nodes[0].id}>Мощность {Math.round(net.nodes[0].grid?.supply ?? 0)} / {net.nodes[0].grid?.demand ?? 0} · Заряд {Math.round(net.nodes.reduce((sum,site) => sum + (site.charge ?? 0),0))}</p>)}
   </section>;
 }
 
 function Warehouse({ state, onFocus, dispatch }) {
   const [filter, setFilter] = useState('all');
-  const keys = categoryGoods[filter];
+  const discovered = discoveredGoods(state);
+  const categories = Object.entries(categoryGoods).filter(([, [,items]]) => items.some(item => discovered.includes(item)));
+  const current = categories.some(([key]) => key === filter) ? filter : 'all';
+  const keys = categoryGoods[current][1].filter(item => discovered.includes(item));
   const allSites = [...homesFor(state).map(home => ({ home, id:homeId(home), site:home, label:home.id ? `Дом ${home.number}` : 'Первый дом' })),
     ...industryStations(state).filter(site => site.kind !== 'house').map(site => ({ site,id:site.id,label:`${BUILDINGS[site.kind].label} ${site.number}` })),
     ...researchSites(state).filter(site => site.kind === 'generator').map(site => ({site,id:site.id,label:stationLabel(site)}))];
   return <>
     <section className="pixel-window industry-panel warehouse-panel">
-      <h3>Запасы хозяйства</h3><GameSelect label="Категория" value={filter} options={['Все','Урожай','Ингредиенты','Продукты','Топливо'].map((label,index) => ({value:Object.keys(categoryGoods)[index],label}))} onChange={setFilter}/>
+      <h3>Запасы хозяйства</h3><GameSelect label="Категория" value={current} options={categories.map(([value, [label]]) => ({value,label}))} onChange={setFilter}/>
       <div className="industry-stock">{keys.map(item => <Good key={item} item={item} qty={stockCount(state,item)}/>)}</div>
       {state.industry.unlocked && <div className="industry-buttons">{[4,8,20].map(amount => <button key={amount} type="button" className="pixel-button"
         disabled={state.trade.coins < JAR_PRICE * amount} onClick={() => dispatch('buyJars',{amount})}>Банки ×{amount} · <Money amount={amount * JAR_PRICE}/></button>)}
-        <button type="button" className="pixel-button" disabled={!stockCount(state,'provisions') || !state.workers.some(worker => worker.sleepUntil === null && worker.stamina < 35)}
-          onClick={() => dispatch('useProvisions')}>Раздать дорожный паёк</button></div>}
+        {discovered.includes('provisions') && <button type="button" className="pixel-button" disabled={!stockCount(state,'provisions') || !state.workers.some(worker => worker.sleepUntil === null && worker.stamina < 35)}
+          onClick={() => dispatch('useProvisions')}>Раздать дорожный паёк</button>}</div>}
     </section>
     <div className="industry-grid">{allSites.map(({home,id,site,label}) => {
       const onSite = item => home ? homeStock(state,home,item) : (site.output?.[item] ?? 0) + (site.inputs?.[item] ?? 0) + (site.stock?.[item] ?? 0)
-        + (site.kind === 'mine' && ['fuel','coal'].includes(item) ? site[item] ?? 0 : 0) + (site.kind === 'tractor' && item === 'fuel' ? Math.floor(site.fuel ?? 0) : 0);
+        + (site.kind === 'mine' && ['fuel','coal'].includes(item) ? site[item] ?? 0 : 0) + (site.kind === 'tractor' && item === 'fuel' ? Math.floor(site.tank ?? 0) : 0);
       const reserved = item => state.industry.tractors.reduce((sum,{trip}) => sum + (trip?.source === id && trip.item === item && !trip.loaded ? trip.amount : 0),0);
       return <section className="pixel-window industry-panel warehouse-panel" key={id}><h3>{label}</h3>
         <div className="industry-stock">{keys.filter(item => onSite(item) || incomingGoods(state,id,item) || reserved(item)).map(item => <div key={item}>
@@ -190,16 +218,21 @@ function Warehouse({ state, onFocus, dispatch }) {
       <h3>Счёт заказа учёного</h3>
       <p>Зачислено {number.format(quantity(state.scientist.bank))} / {number.format(quantity(SCIENTIST_GOODS))} · В пути {number.format(Object.keys(SCIENTIST_GOODS).reduce((sum,key) => sum + scientistInTransit(state,key),0))}</p>
       {state.scientist.stage !== 'complete' && (scientistStall(state) ? <button type="button" className="pixel-button" onClick={() => onFocus(scientistStall(state))}>Показать лавку</button> : <p>Поставь лавку, чтобы продолжить получение образцов.</p>)}
-      {state.scientist.stage === 'accepted' && <details><summary>Образцы по видам</summary>{Object.entries(SCIENTIST_GOODS).map(([key,amount]) => <p key={key}>{GOODS[key].label} · {number.format(state.scientist.bank[key] ?? 0)} / {number.format(amount)}</p>)}</details>}
+      {state.scientist.stage === 'accepted' && <details><summary>Образцы по видам</summary>{Object.entries(SCIENTIST_GOODS).filter(([key]) => discovered.includes(key)).map(([key,amount]) => <p key={key}>{GOODS[key].label} · {number.format(state.scientist.bank[key] ?? 0)} / {number.format(amount)}</p>)}</details>}
     </section>}
   </>;
 }
 
-export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild, onFocus, onResearch }) {
+export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild, onFocus }) {
   const dialog = useRef(null);
   const [tab, setTab] = useState(initialSite ? 'stations' : 'board');
   const [expanded, setExpanded] = useState(initialSite ?? null);
   const sites = industryStations(state);
+  const industryOpen = state.industry.unlocked;
+  const canManageSites = industryOpen || state.industry.houses.length > 0;
+  const activeTab = tab === 'stations' && !canManageSites ? 'board' : tab;
+  const tabs = [['build', 'Строительство'], ...(canManageSites ? [['stations', industryOpen ? 'Станции' : 'Дома']] : []),
+    ['board', 'Сводка'], ['stock', 'Склад']];
   useEffect(() => {
     const node = dialog.current;
     node.showModal();
@@ -214,15 +247,14 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
     <header className="screen-header market-header">
       <h2 id="industry-title"><Glyph name="table"/> Хозяйство</h2>
       <p><Money amount={state.trade.coins}/></p>
-      <button type="button" className="pixel-button" onClick={onResearch}><Glyph name="tree"/> Исследования</button>
       <button type="button" className="pixel-button" onClick={onClose}><Glyph name="back"/> Карта</button>
     </header>
     <div className="industry-body">
       <nav className="industry-tabs" aria-label="Раздел хозяйства">
-        {[['build', 'Строительство'], ['stations', 'Станции'], ['board', 'Сводка'], ['stock', 'Склад']].map(([id, label]) =>
-          <button className="pixel-button" type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        {tabs.map(([id, label]) =>
+          <button className="pixel-button" type="button" key={id} aria-pressed={activeTab === id} onClick={() => setTab(id)}>{label}</button>)}
       </nav>
-      {tab === 'build' && <>
+      {activeTab === 'build' && <>
         {state.industry.unlocked && !state.industry.firstWorkshopDelivery && <section className="pixel-window industry-panel">
           <h3>Первая партия</h3>
           <ol>
@@ -256,9 +288,9 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           </div>)}
         </section>}
       </>}
-      {tab === 'stations' && <>
+      {activeTab === 'stations' && <>
         {!sites.length && <section className="pixel-window industry-panel"><p>Поставь станцию на карте.</p></section>}
-        {sites.map(site => {
+        {sites.filter(site => industryOpen || site.kind === 'house').map(site => {
           const staff = state.workers.filter(worker => worker.siteId === site.id);
           const send = (action, fields) => dispatch(action, { id: site.id, ...fields });
           const label = site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label;
@@ -281,18 +313,18 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
                 !staff.length ? 'Назначь водителя в профиле ёжика.' : !site.tank && !stockCount(state, 'fuel') ? 'Ждёт топливо' : 'Ждёт подходящий груз и дорогу'} · Топливо: {site.tank ?? 0}</p>}
               {site.kind === 'house' && <><p>Запасы хранятся в этом доме. Другие станции получают их доставкой.</p>
                 <div className="industry-stock">{Object.entries(site.stock ?? {}).filter(([, qty]) => qty > 0).map(([item, qty]) => <Good key={item} item={item} qty={qty}/>)}</div></>}
-              <FreightControl id={site.id} state={state} dispatch={dispatch}/>
+              {industryOpen && <FreightControl id={site.id} state={state} dispatch={dispatch}/>}
             </div>}
           </section>;
         })}
       </>}
-      {tab === 'board' && <>
+      {activeTab === 'board' && <>
         <GardenOverview state={state} onFocus={onFocus}/>
         <section className="pixel-window industry-panel">
           <h3>Доставки</h3>
-          <p>Тракторных рейсов {state.industry.deliveries} · В пути {state.industry.tractors.filter(site => site.trip).length} · Ёжики {state.workers.length}/{housingCapacity(state)}</p>
+          <p>{industryOpen && <>Тракторных рейсов {state.industry.deliveries} · В пути {state.industry.tractors.filter(site => site.trip).length} · </>}Ёжики {state.workers.length}/{housingCapacity(state)}</p>
           <StatusBoard state={state} onFocus={onFocus}/>
-          <div className="industry-board">{sites.filter(site => site.kind !== 'house').map(site => {
+          <div className="industry-board">{industryOpen && sites.filter(site => site.kind !== 'house').map(site => {
             const staff = state.workers.some(worker => worker.siteId === site.id);
             return <button className="pixel-button" type="button" key={site.id} onClick={() => { setExpanded(site.id); setTab('stations'); }}>
               <span><Glyph name={staff || site.level === 3 ? 'check' : 'pin'}/> {site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label} {site.number}</span>
@@ -304,7 +336,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           })}</div>
         </section>
       </>}
-      {tab === 'stock' && <Warehouse state={state} onFocus={onFocus} dispatch={dispatch}/>}
+      {activeTab === 'stock' && <Warehouse state={state} onFocus={onFocus} dispatch={dispatch}/>}
     </div>
   </dialog>;
 }

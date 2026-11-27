@@ -11,6 +11,7 @@ import { AppleTree, FlowerArt, Glyph, HedgeSprite, HouseArt, SleepLetters, Terra
 import { hedgehogName, HEDGE_NAME_LIMIT, PERKS, plotBounds, workerActivity, workerCharacteristics, workerWorkplace, workplaces, workRoleLabel } from './game.js';
 import { EAST_ORCHARD, FOREST_ORCHARD, HOUSE, isBerryOrchard, orchardName, STAT_INFO, WORK_ROLE_ICONS } from './orchard.js';
 import { ProfileGlyph } from './profile-art.jsx';
+import { PerkIcon } from './perk-art.jsx';
 import { Tooltip } from './tooltip.jsx';
 import { BerryBushArt, MarketStallArt } from './trade-art.jsx';
 import { stallById } from './trade.js';
@@ -90,14 +91,14 @@ function habitat(state, worker) {
     const patch = state.trade.wild.find(item => item.id === job?.patchId);
     const point = patch ?? { x: Math.round(worker.x / 120) * 120, y: Math.round(worker.y / 120) * 120 };
     return worker.workRole === 'forage'
-      ? { point, label: 'Лес', art: <BerryBushArt fruit={patch?.fruit ?? 4}/> }
-      : { point, label: 'Лес', art: <FlowerArt variant={0}/> };
+      ? { point, label: 'Лес', art: <BerryBushArt fruit={patch?.fruit ?? 4} point={point}/> }
+      : { point, label: 'Лес', art: <FlowerArt variant={0} point={point}/> };
   }
   const id = worker.orchardId;
   const plot = plotBounds(state, id);
   const point = plot ? { x: plot.x + plot.width / 2, y: plot.y + plot.height / 2 } : HOUSE;
   const variety = id === FOREST_ORCHARD ? 'forest' : id === EAST_ORCHARD ? 'gold' : 'red';
-  const art = isBerryOrchard(id) ? <BerryBushArt fruit={5}/> : <AppleTree fruit={5} variety={variety}/>;
+  const art = isBerryOrchard(id) ? <BerryBushArt fruit={5} point={point}/> : <AppleTree fruit={5} variety={variety} point={point}/>;
   return { point, label: orchardName(id), art };
 }
 
@@ -154,12 +155,12 @@ export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
     {perks.map(key => {
       const perk = PERKS[key];
       return <section key={key} className="profile-perk" aria-label="Перк">
-        <div className="perk-icon" data-perk={key}><Glyph name={perk.icon}/></div>
+        <PerkIcon perk={key} className="profile-perk-art"/>
         <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label ?? 'Уникальный'} · {perkDescription(key,jobs)}</p></div>
       </section>;
     })}
     {worker.pendingPerks?.map(key => <section key={key} className="research-card">
-      <h3>Новый перк · {PERKS[key].name}</h3><p>{perkDescription(key,jobs)}</p>
+      <h3><PerkIcon perk={key}/> Новый перк · {PERKS[key].name}</h3><p>{perkDescription(key,jobs)}</p>
       {(perks.length === 3 ? perks : [null]).map(replace => <button key={replace ?? 'empty'} type="button" className="pixel-button mini"
         onClick={() => dispatch('replacePerk',{id:worker.id,earn:key,replace})}>{replace ? `Заменить «${PERKS[replace].name}»` : 'Добавить перк'}</button>)}
     </section>)}

@@ -1,3 +1,4 @@
+import { recordEstateWalks, restoreEstateWalks } from './estate-map.js';
 import { advanceDialogue } from './hedge-dialogue.js';
 import { advanceDevelopment, developmentActions, expireLodge, reservedHousing } from './development.js';
 import { advanceScientist, scientistActions, validScientist } from './commission.js';
@@ -43,9 +44,9 @@ const originalUpgrades = {
   roots: { name: 'Защитная ограда', desc: 'Вокруг садов появляется ограда. Яблоки созревают за время на 25% меньше.', cost: 16, icon: 'fence', requires: 'plot1' },
   crop: { name: 'Плодородная почва', desc: 'Под яблонями появляются грядки. Каждое дерево даёт на два яблока больше за урожай.', cost: 24, icon: 'soil', requires: 'roots' },
   clearing: { name: 'Расчистка сада', desc: 'В лавке появится топор. С ним можно срубить яблоню и освободить место для посадки.', cost: 9, icon: 'axe', requires: 'plot1' },
-  group1: { name: 'Дружная кучка', desc: 'Второй слот для помощника.', cost: 14, icon: 'group' },
+  group1: { name: 'Дружная кучка', desc: 'Второй слот для помощника.', cost: 14, icon: 'hedgePair' },
   group2: { name: 'Свои ёжики', desc: 'Третий слот для помощника.', cost: 32, icon: 'groupThree', requires: 'group1' },
-  pace: { name: 'Лёгкий шаг', desc: 'Все помощники ходят на 18% быстрее.', cost: 15, icon: 'track' },
+  pace: { name: 'Лёгкий шаг', desc: 'Все помощники ходят на 18% быстрее.', cost: 15, icon: 'boot' },
   carry: { name: 'Ловкие лапки', desc: 'Все помощники берут на одно яблоко больше за поход.', cost: 25, icon: 'basket', requires: 'pace' },
   flower: { name: 'Долгая бодрость', desc: 'Цветок ускоряет ёжиков на десять секунд дольше.', cost: 12, icon: 'flowerClock' },
   paving: { name: 'Скорый рейс', desc: 'Ходьба с полной корзиной становится на 22% быстрее.', cost: 17, icon: 'fastBasket', requires: 'pace' },
@@ -55,18 +56,18 @@ const originalUpgrades = {
   grafting: { name: 'Садовая прививка', desc: 'Янтарные и лесные яблони дают по одному дополнительному плоду. На стволах появляются прививки.', cost: 28, icon: 'graft', requires: 'crop' },
   seedSatchel: { name: 'Мешочек семян', desc: 'Обычные саженцы стоят на 20% дешевле.', cost: 19, icon: 'seedSatchel', requires: 'clearing' },
   quickPacking: { name: 'Быстрые узлы', desc: 'Погрузка полных корзин в любом саду занимает на 20% меньше времени.', cost: 30, icon: 'table', requires: 'pantry' },
-  tradeCrates: { name: 'Ящики для лавок', desc: 'Ёжик приносит в лавку до 12 дополнительных яблок или ягод за рейс.', cost: 34, icon: 'crate', requires: 'pantry' },
+  tradeCrates: { name: 'Ящики для лавок', desc: 'Ёжик приносит в лавку до 12 дополнительных яблок или ягод за рейс.', cost: 34, icon: 'crate', requires: 'pantry', gate: 'market' },
   longShift: { name: 'Долгая смена', desc: 'У всех ёжиков на 14 больше запаса сил.', cost: 26, icon: 'endurance', requires: 'naps' },
   group3: { name: 'Большая кучка', desc: 'Открывает четвёртое место в избранной кучке.', cost: 38, icon: 'groupFour', requires: 'group2' },
   keenScent: { name: 'Острый нюх', desc: 'Искатели замечают цветы на 45 шагов дальше.', cost: 18, icon: 'foraging', requires: 'flower' },
   berryBaskets: { name: 'Ягодное лукошко', desc: 'Каждый куст приносит на две ягоды больше.', cost: 44, icon: 'berry', requires: 'grafting', gate: 'berries' },
-  farmWater: { name: 'Капельный полив', desc: 'Политые культуры созревают на 20% быстрее.', cost: 58, icon: 'water', requires: 'berryBaskets', gate: 'berries' },
+  farmWater: { name: 'Капельный полив', desc: 'Политые культуры созревают на 20% быстрее.', cost: 58, icon: 'water', requires: 'berryBaskets', gate: 'farm' },
   batchCraft: { name: 'Удобные формы', desc: 'Все рецепты готовятся на 25% быстрее.', cost: 65, icon: 'table', requires: 'quickPacking', gate: 'production' },
   largerBatches: { name: 'Полный противень', desc: 'Каждая партия даёт одну дополнительную порцию.', cost: 95, icon: 'pie', requires: 'batchCraft', gate: 'production' },
   efficientFuel: { name: 'Угольные брикеты', desc: 'Рецепт топлива даёт ещё одну единицу за партию.', cost: 72, icon: 'fuel', requires: 'pantry', gate: 'production' },
   tractorGears: { name: 'Тяговая передача', desc: 'Тракторы ездят на 24% быстрее.', cost: 108, icon: 'fastBasket', requires: 'efficientFuel', gate: 'production' },
   shiftPlanning: { name: 'Тёплый очаг', desc: 'Восстановление сил всех ёжиков занимает на 20% меньше времени.', cost: 62, icon: 'bed', requires: 'longShift' },
-  marketLedger: { name: 'Книга заказов', desc: 'Все заказы приносят на 8% больше монет.', cost: 80, icon: 'coin', requires: 'tradeCrates' },
+  marketLedger: { name: 'Книга заказов', desc: 'Все заказы приносят на 8% больше монет.', cost: 80, icon: 'coin', requires: 'tradeCrates', gate: 'market' },
   flowerPower: { name: 'Душистый нектар', desc: 'Цветок даёт ещё 15 процентных пунктов к бонусу скорости.', cost: 24, icon: 'nectar', requires: 'keenScent' },
 };
 
@@ -81,28 +82,28 @@ export const UPGRADES = {
   ...Object.fromEntries(Object.entries(originalUpgrades).map(([id, upgrade]) =>
     [id, { ...upgrade, cost: revisedPrices[id] ?? upgrade.cost }])),
   orchardStewards: { name: 'Сильные ветви', desc: 'Каждая яблоня даёт на два плода больше за урожай.', cost: 130, icon: 'apple', requires: 'grafting' },
-  gardenCrew: { name: 'Проворные сборщики', desc: 'Ёжики собирают урожай на 20% быстрее.', cost: 98, icon: 'handling', requires: 'picking' },
-  farmHarvest: { name: 'Щедрые грядки', desc: 'Кусты дают ещё две ягоды, а пшеница даёт ещё три зерна за урожай.', cost: 208, icon: 'wheat', requires: 'farmWater', gate: 'berries' },
-  trailSatchels: { name: 'Дорожные сумы', desc: 'Снабженцы несут на 16 товаров больше за рейс.', cost: 148, icon: 'crate', requires: 'tradeCrates' },
+  gardenCrew: { name: 'Проворные сборщики', desc: 'Ёжики собирают урожай на 20% быстрее.', cost: 98, icon: 'arrowUp', requires: 'picking' },
+  farmHarvest: { name: 'Щедрые грядки', desc: 'Кусты дают ещё две ягоды, а пшеница даёт ещё три зерна за урожай.', cost: 208, icon: 'wheat', requires: 'farmWater', gate: 'farm' },
+  trailSatchels: { name: 'Дорожные сумы', desc: 'Снабженцы несут на 16 товаров больше за рейс.', cost: 148, icon: 'crate', requires: 'tradeCrates', gate: 'market' },
   packingLine: { name: 'Поточная линия', desc: 'Все рецепты готовятся на 25% быстрее.', cost: 310, icon: 'table', requires: 'largerBatches', gate: 'production' },
   coalKiln: { name: 'Горячая печь', desc: 'Переработка угля в топливо занимает на треть меньше времени.', cost: 275, icon: 'fuel', requires: 'efficientFuel', gate: 'production' },
   roadFreight: { name: 'Вместительный прицеп', desc: 'Трактор везёт до 64 товаров или четырёх корзин за рейс.', cost: 350, icon: 'fastBasket', requires: 'tractorGears', gate: 'production' },
   heritageOrchard: { name: 'Сад у моста', desc: 'Деревья первого сада дают ещё три яблока.', cost: 185, icon: 'apple', requires: 'orchardStewards' },
-  firstFarm: { name: 'Первые грядки', desc: 'Первый ягодник даёт ещё четыре ягоды с куста.', cost: 285, icon: 'berry', requires: 'farmHarvest', gate: 'berries' },
+  firstFarm: { name: 'Первые грядки', desc: 'Первый ягодник даёт ещё четыре ягоды с куста.', cost: 285, icon: 'berry', requires: 'farmHarvest', gate: 'farm' },
   freightHub: { name: 'Грузовой двор', desc: 'Трактор перевозит ещё 16 единиц товара за рейс.', cost: 475, icon: 'crate', requires: 'roadFreight', gate: 'production' },
-  trustedStall: { name: 'Лавка с именем', desc: 'Заказы приносят ещё на 6% больше монет.', cost: 315, icon: 'market', requires: 'marketLedger' },
+  trustedStall: { name: 'Лавка с именем', desc: 'Заказы приносят ещё на 6% больше монет.', cost: 315, icon: 'market', requires: 'marketLedger', gate: 'market' },
   orchardTeams: { name: 'Отлаженная смена', desc: 'Ёжики восстанавливаются ещё на 15% быстрее.', cost: 265, icon: 'bed', requires: 'shiftPlanning' },
   furnaceCrew: { name: 'Бригада у печи', desc: 'Партии на производстве готовятся на 15% быстрее.', cost: 430, icon: 'fuel', requires: 'packingLine', gate: 'production' },
   forestPockets: { name: 'Лесные запасы', desc: 'Искатель приносит на четыре дикие ягоды больше.', cost: 104, icon: 'berry', requires: 'keenScent', gate: 'berries' },
   bridgeOrchardCare: { name: 'Садовая опека', desc: 'Первый сад даёт ещё одно яблоко с дерева.', cost: 285, icon: 'apple', requires: 'heritageOrchard' },
-  seedExchange: { name: 'Обмен саженцами', desc: 'Обменивай два янтарных саженца на три обычных.', cost: 95, icon: 'seedSatchel', requires: 'seedSatchel' },
+  seedExchange: { name: 'Обмен саженцами', desc: 'Обменивай два янтарных саженца на три обычных.', cost: 95, icon: 'seedSatchel', requires: 'seedSatchel', gate: 'amber' },
   basketHooks: { name: 'Крюки для корзин', desc: 'Погрузка корзин на 10% быстрее.', cost: 134, icon: 'table', requires: 'quickPacking' },
   forestLining: { name: 'Подкладка лукошка', desc: 'Искатели приносят ещё две дикие ягоды.', cost: 168, icon: 'berry', requires: 'forestPockets', gate: 'berries' },
-  wateringTote: { name: 'Ковш с носиком', desc: 'Ручной полив охватывает ещё одно растение.', cost: 184, icon: 'water', requires: 'farmWater', gate: 'berries' },
+  wateringTote: { name: 'Ковш с носиком', desc: 'Ручной полив охватывает ещё одно растение.', cost: 184, icon: 'water', requires: 'farmWater', gate: 'farm' },
   fruitSorting: { name: 'Корзины для сортировки', desc: 'Ёжики собирают яблоки на 10% быстрее.', cost: 154, icon: 'pickApple', requires: 'gardenCrew' },
   houseDispatch: { name: 'Диспетчерская', desc: 'Грузчики несут ещё четыре товара за рейс.', cost: 258, icon: 'crate', requires: 'trailSatchels', gate: 'production' },
-  queueSteward: { name: 'Распорядитель очереди', desc: 'В каждой лавке появляется ещё одно место в очереди.', cost: 240, icon: 'market', requires: 'marketLedger' },
-  returningGuests: { name: 'Постоянные гости', desc: 'К лавкам с продавцом гости приходят на 5% чаще.', cost: 358, icon: 'coin', requires: 'queueSteward' },
+  queueSteward: { name: 'Распорядитель очереди', desc: 'В каждой лавке появляется ещё одно место в очереди.', cost: 240, icon: 'market', requires: 'marketLedger', gate: 'market' },
+  returningGuests: { name: 'Постоянные гости', desc: 'К лавкам с продавцом гости приходят на 5% чаще.', cost: 358, icon: 'coin', requires: 'queueSteward', gate: 'market' },
   fuelCrates: { name: 'Топливные ящики', desc: 'Трактор берёт до четырёх дополнительных единиц топлива за рейс.', cost: 420, icon: 'fuel', requires: 'furnaceCrew', gate: 'production' },
   apprenticeship: { name: 'Ученические смены', desc: 'Курсы до десятого уровня занимают на 10% меньше времени.', cost: 178, icon: 'hedge', requires: 'longShift', gate: 'training' },
   instructorBench: { name: 'Скамья инструктора', desc: 'Поздние курсы требуют на 10% меньше пайков с округлением вверх.', cost: 284, icon: 'bed', requires: 'apprenticeship', gate: 'advancedCourses' },
@@ -200,12 +201,24 @@ const harvestTime = (state, workers, variety) => {
 const loadingTime = worker => 1800 / (1 + worker.stats.handling * .075);
 const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .67 + worker.stats.strength * .027) * (state.upgrades.includes('paving') ? 1.22 : 1) * perkEffect(worker,'haul',1);
 
+function upgradeDiscovered(state, gate) {
+  switch (gate) {
+    case undefined: return true;
+    case 'market': return state.trade.permit;
+    case 'berries': return state.trade.berryKnown || state.trade.berries > 0;
+    case 'farm': return Boolean(state.trade.berryFarm);
+    case 'amber': return state.goldDiscovered;
+    case 'production': return state.industry.unlocked;
+    case 'eitherTutorial': return hasResearch(state, 'irrigation') || hasResearch(state, 'electricity');
+    default: return hasResearch(state, gate);
+  }
+}
+
 export function upgradeStatus(state, id) {
   const item = UPGRADES[id];
+  if (!item || !state.unlocked || !upgradeDiscovered(state, item.gate)) return 'locked';
   if (state.upgrades.includes(id)) return 'done';
-  if (!state.unlocked || (item.gate === 'berries' && !state.trade.berryKnown) || (item.gate === 'production' && !state.industry.unlocked) || (item.requires && !state.upgrades.includes(item.requires))) return 'locked';
-  if (item.gate === 'eitherTutorial' && !hasResearch(state,'irrigation') && !hasResearch(state,'electricity')) return 'locked';
-  if (item.gate && !['berries','production','eitherTutorial'].includes(item.gate) && !hasResearch(state,item.gate)) return 'locked';
+  if (item.requires && !state.upgrades.includes(item.requires)) return 'locked';
   return state.xp >= item.cost ? 'ready' : 'pending';
 }
 
@@ -1093,6 +1106,7 @@ export function advance(state, elapsed) {
   advanceIndustry(next, elapsed / 1000, deposit, (actor, target) => planGardenWalk(next, actor, target));
   advanceDevelopment(next, elapsed / 1000, (actor,target) => planGardenWalk(next,actor,target), () => generateWorker(next),
     assignment => applyPresetAssignment(next,assignment), worker => staminaLimit(next,worker));
+  recordEstateWalks(next, state);
   advanceDialogue(next, BALANCE.talkCooldown);
   earnLevels(next);
   if (next.flowerAt && next.time >= next.flowerAt) {
@@ -1258,6 +1272,7 @@ function readGame(raw, legacy) {
       if (offer && (typeof offer.id !== 'string' || !hedgehogName(offer.name)
         || !Object.keys(DEFAULT_STATS).every(key => Number.isFinite(offer.stats?.[key])))) return null;
       migrateMarketProgress(state);
+      restoreEstateWalks(state);
       state.version = 4;
       const previousGoal = BALANCE.firstLevelXp + (state.level - 1) * 2;
       if (!Number.isSafeInteger(state.xpProgress) || state.xpProgress < 0 || !Number.isSafeInteger(state.level) || state.level < 1

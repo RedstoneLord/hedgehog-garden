@@ -1,8 +1,9 @@
 import { memo } from 'react';
+import { hasItemGlyph, ItemGlyph } from './item-art.jsx';
 import landscape from './pixel-landscape.png?inline';
 import ambient from './pixel-ambient.png?inline';
 import wind from './pixel-wind.png?inline';
-import { AMBIENT_FRAMES, fenceSegments, terrainKind, WORLD } from './terrain.js';
+import { AMBIENT_FRAMES, fenceSegments, terrainKind, tintFoliage, WORLD } from './terrain.js';
 
 export function pixelPaths(rows) {
   const paths = {};
@@ -56,12 +57,9 @@ export function StrawberryPixels({ x = 0, y = 0, small = false }) {
 const glyphs = {
   down: ['........','........','.YYYYYY.','..YYYY..','...YY...','........','........','........'],
   wheat: ['...Y....', 'Y..YY.Y.', '.Y.Y.YY.', '.YYY.Y..', '..YYYY..', '...YYY..', '..K.G...', '.K..G...'],
-  flour: ['..KKKK..', '...WW...', '..WWWW..', '.WWYYWW.', '.WYYYYW.', '.WWYYWW.', '.KWWWWK.', '..KKKK..'],
   jar: ['.YYYYYY.', '..KKKK..', '..B..B..', '.B....B.', '.B..B.B.', '.B....B.', '.BWWWWB.', '..BBBB..'],
-  fuel: ['....NN..', '..NNNNN.', '.NNYNNN.', '.NNNNNNN', 'NNBNNNNN', 'NNNNNBNN', '.NNNNNN.', '..NNNN..'],
   compote: ['.YYYYYY.', '..KKKK..', '..B..B..', '.BRRRRB.', '.BRYRRB.', '.BRRRRB.', '.BWWWWB.', '..BBBB..'],
   bread: ['..KKKK..', '.KYYYYK.', 'KYTYYYYK', 'KYYYTYKK', 'KYYYYYKK', '.KKKKKK.', '........', '........'],
-  pie: ['..YYYY..', '.YYYYYY.', 'YYKKKYKY', 'YKYYKYYY', 'YYYYYKKY', '.KKKKKK.', '..KKKK..', '........'],
   jam: ['.YYYYYY.', '..KKKK..', '..BRRB..', '.BRRRRB.', '.BRYYRB.', '.BRYRRB.', '.BRRRRB.', '..BBBB..'],
   mixedJam: ['.YYYYYY.', '..KKKK..', '..BPRB..', '.BPRRPB.', '.BRYYPB.', '.BPYYRB.', '.BRRPPB.', '..BBBB..'],
   sound: ['....Y...', '...YY.Y.', '.YYYY..Y', '.YYYY.YY', '.YYYY..Y', '...YY.Y.', '....Y...', '........'],
@@ -128,6 +126,7 @@ const glyphPalette = { Y: '#f6d58f', K: '#ac733e', R: '#d4624b', H: '#f49b75', G
   T: '#be794d', B: '#78b8cc', V: '#bb9ce5', W: '#fff0ca', N: '#4b6286' };
 const glyphPaths = Object.fromEntries(Object.entries(glyphs).map(([name, rows]) => [name, pixelPaths(rows)]));
 export function Glyph({ name, className = '' }) {
+  if (hasItemGlyph(name)) return <ItemGlyph name={name} className={`glyph ${className}`}/>;
   if (name === 'berry') return <svg viewBox="0 0 9 10" className={`glyph ${className}`} aria-hidden="true"><StrawberryPixels/></svg>;
   return <svg viewBox="0 0 8 8" className={`glyph ${className}`} aria-hidden="true"><Pixels paths={glyphPaths[name]} palette={glyphPalette}/></svg>;
 }
@@ -216,8 +215,9 @@ const amberColors = { ...artColors, D:'#35492f', M:'#4d683b', L:'#678048', l:'#a
 const canopyPaths = pixelPaths(canopy);
 const trunkPaths = pixelPaths(trunk);
 const treeFruit = [[3, 5], [7, 3], [11, 5], [5, 8], [10, 9], [2, 8], [12, 7], [7, 10], [9, 6], [5, 5]];
-export function AppleTree({ fruit, variety, grafted = false }) {
-  const palette = variety === 'forest' ? { ...artColors, D:'#244539', L:'#477f55', R:'#a94a71', H:'#e6a0a3' } : variety === 'gold' ? amberColors : artColors;
+export function AppleTree({ fruit, variety, grafted = false, point }) {
+  const base = variety === 'forest' ? { ...artColors, D:'#244539', L:'#477f55', R:'#a94a71', H:'#e6a0a3' } : variety === 'gold' ? amberColors : artColors;
+  const palette = tintFoliage(base, ['D','M','L','l','m'], point);
   return <svg viewBox="0 0 16 18" aria-hidden="true" className="tree-sprite">
     <g transform="translate(0 12)"><Pixels paths={trunkPaths} palette={palette}/></g>
     {grafted && <path className="tree-graft" d="M7 13h2v1h1v1H7z" fill={variety === 'gold' ? '#ecbf69' : '#c57051'} shapeRendering="crispEdges"/>}
@@ -375,9 +375,9 @@ export function SprinklerArt({ spray = true, level = 1 }) {
     </g>}
   </svg>;
 }
-export function FlowerArt({ variant }) {
+export function FlowerArt({ variant, point }) {
   const [P,H] = [['#99549b','#dda2ce'], ['#bd6a56','#efae91'], ['#755aa5','#b9a2e3']][variant];
-  return <svg viewBox="0 0 12 11" aria-hidden="true"><Pixels paths={flowerPaths} palette={{P,H,Y:'#f8d989',G:'#4c7847',L:'#a6bc66'}}/></svg>;
+  return <svg viewBox="0 0 12 11" aria-hidden="true"><Pixels paths={flowerPaths} palette={tintFoliage({P,H,Y:'#f8d989',G:'#4c7847',L:'#a6bc66'}, ['G','L'], point)}/></svg>;
 }
 
 export const TerrainPortrait = memo(function TerrainPortrait({ x, y, cover = false }) {

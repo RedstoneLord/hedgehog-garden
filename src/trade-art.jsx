@@ -1,3 +1,4 @@
+import { tintFoliage } from './terrain.js';
 import { HedgeSprite, StrawberryPixels } from './art.jsx';
 
 import { beardStyles, faces, hats, hairstyles, looks, outfits } from './customer-looks.js';
@@ -114,8 +115,9 @@ export function MarketStallArt({ level = 0, levels, stock }) {
 
 const strawberryPositions = [[1, 7], [14, 6], [8, 9]];
 
-export function BerryBushArt({ fruit, drying = false, watered = false }) {
-  const [shadow, leaves, light] = drying ? ['#555e3b', '#84854d', '#afac62'] : ['#2b543d', '#5e8647', '#a6b760'];
+export function BerryBushArt({ fruit, drying = false, watered = false, point }) {
+  const { shadow, leaves, light } = tintFoliage(drying ? {shadow:'#555e3b', leaves:'#84854d', light:'#afac62'}
+    : {shadow:'#2b543d', leaves:'#5e8647', light:'#a6b760'}, ['shadow','leaves','light'], point);
   return <svg viewBox="0 0 24 19" aria-hidden="true" shapeRendering="crispEdges">
     <path d="M5 16h14v1h2v1H3v-1h2z" fill={watered ? '#635647' : '#84734b'}/>
     <path d="M10 2h4v1h2v2h3v1h2v1h2v4h-2v2h-4v2h-4v2h-3v-2H7v-2H4v-2H2V7h2V6h3V5h2V3h1z" fill={shadow}/>

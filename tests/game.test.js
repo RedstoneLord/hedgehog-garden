@@ -259,6 +259,7 @@ test('new upgrades change regrowth, crop, carry and the flower duration', () => 
 
 test('new tree upgrades branch from their prerequisites and apply their bonuses', () => {
   const base = { ...start(), xp: 900 };
+  base.trade.permit = true;
   const worker = base.workers[0];
   const initial = workerCharacteristics(base, worker);
   assert.equal(visibleUpgrades(base).includes('group3'), false);

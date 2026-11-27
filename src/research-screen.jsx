@@ -1,3 +1,4 @@
+import { PerkIcon } from './perk-art.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph, HedgeSprite } from './art.jsx';
 import { CustomerPortrait } from './trade-art.jsx';
@@ -14,7 +15,7 @@ import { workplaces } from './game.js';
 import './research.css';
 
 const format = new Intl.NumberFormat('ru').format;
-const branchIcons = { agricultural:'seed', electrical:'fuel', industry:'table', workforce:'hedge', comfort:'flower', leisure:'coin', shared:'tree' };
+const branchIcons = { agricultural:'seed', electrical:'speed', industry:'table', workforce:'hedge', comfort:'flower', leisure:'coin', shared:'tree' };
 const options = entries => entries.map(([value,label]) => ({ value,label }));
 
 export function ScientistPanel({ state, stall, dispatch }) {
@@ -217,10 +218,11 @@ export function PerkReveal({ state, event, dispatch }) {
     <div className="perk-confetti" aria-hidden="true">{Array.from({length:18},(_,index) => <i key={index} style={{'--ray':index * 20 + 'deg','--wait':index % 5 * 68 + 'ms'}}/>)}</div>
     <div className="perk-award-hedge">{worker && <HedgeSprite hedge={worker}/>}</div>
     <h2>{event.name ?? worker?.name} HAS EARNED THE {perk.name.toUpperCase()} PERK!</h2>
-    <p><Glyph name={perk.icon}/> {perkDescription(event.perk,availablePerkJobs(state,workplaces(state)))}</p>
+    <PerkIcon perk={event.perk} className="perk-award-icon"/>
+    <p>{perkDescription(event.perk,availablePerkJobs(state,workplaces(state)))}</p>
     {worker?.pendingPerks?.includes(event.perk) && <div className="research-actions">
       {workerPerks(worker).map(key => <button key={key} type="button" className="pixel-button"
-        onClick={() => dispatch('replacePerk',{id:worker.id,earn:event.perk,replace:key})}>Заменить «{PERKS[key].name}»</button>)}
+        onClick={() => dispatch('replacePerk',{id:worker.id,earn:event.perk,replace:key})}><PerkIcon perk={key}/> Заменить «{PERKS[key].name}»</button>)}
     </div>}
     <button type="button" className="pixel-button" onClick={() => dispatch('dismissPerkReveal',{id:event.id})}>Продолжить</button>
   </section>;
@@ -267,54 +269,51 @@ export function ResearchScreen({ state, dispatch, initialSite, onClose, onBuild,
   const electricity = hasResearch(state,'electricity');
   const net = station && powerNetworks(state).find(net => net.nodes.includes(station) || net.consumers.includes(station));
   return <dialog ref={dialog} className="game-screen research-screen" aria-labelledby="research-title" onCancel={event => {event.preventDefault(); onClose();}}>
-    <header className="screen-header market-header">
-      <h2 id="research-title"><Glyph name="tree"/> Исследования</h2>
-      <p>{format(state.research?.rp ?? 0)} ОИ <Glyph name="coin"/> {format(state.trade.coins)}</p>
+    <header className="screen-header research-header">
+      <h2 id="research-title"><span className="research-emblem"><Glyph name="flask"/></span> Исследования</h2>
+      <p><span><Glyph name="flask"/> {format(state.research?.rp ?? 0)} ОИ</span><span><Glyph name="coin"/> {format(state.trade.coins)}</span></p>
       <button type="button" className="pixel-button" onClick={onClose}><Glyph name="back"/> Карта</button>
     </header>
     <div className="research-body">
-      {!researchUnlocked(state) ? <section className="pixel-window research-card">
-        <h3>Доступ закрыт</h3><p>Исследования открывает заказ учёного. После запуска производства и накопления 10 000 монет учёный придёт к самой старой лавке.</p>
-      </section> : <>
-        <nav className="industry-tabs" aria-label="Разделы исследований">
-          {[['tree','Проекты'],['manual','Ручная работа'],['build','Строительство'],['stations','Станции']].map(([key,label]) =>
-            <button className="pixel-button" type="button" key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}
-        </nav>
-        {tab === 'tree' && <div className="research-layout">
-          <ResearchGraph state={state} selected={selected} select={setSelected}/>
-          <div><GameSelect label="Проект" value={selected} options={options(Object.entries(PROJECTS).map(([id,data]) => [id,`${RESEARCH_BRANCHES[data[1]]} · ${data[0]}`]))} onChange={setSelected}/>
-            <ProjectDetails state={state} selected={selected} dispatch={dispatch}/></div>
-        </div>}
-        {tab === 'manual' && <ChallengeDesk state={state} dispatch={dispatch}/>}
-        {tab === 'build' && <>
-          <GameSelect label="Категория построек" value={buildGroup} onChange={setBuildGroup}
-            options={options([['all','Все'],['grid','Питание и полив'],['facilities','Исследования и обучение'],['decoration','Декор и досуг']])}/>
-          <div className="industry-grid">{Object.entries(RESEARCH_BUILDINGS).filter(([key,data]) => (!data[3] || hasResearch(state,data[3]))
-            && (buildGroup === 'all' || buildingCategory(key) === buildGroup)).map(([key,[name,,price]]) =>
-            <section key={key} className="pixel-window research-card research-build-card"><ResearchStationArt kind={key}/><h3>{name}</h3>
-              <p>{buildingDescriptions[key]}</p>
-              {key === 'pump' && !electricity && <p>После монтажа подключи насос к сети.</p>}
-              <button type="button" className="pixel-button" disabled={state.trade.coins < price} onClick={() => onBuild(key)}>Поставить · {format(price)} монет</button>
-            </section>)}</div>
-        </>}
-        {tab === 'stations' && <div className="research-layout">
-          <section className="pixel-window research-card">
-            <h3>Постройки</h3>
-            {sites.length ? <div className="research-station-list">{sites.map(site => <button key={site.id} type="button" className="pixel-button" aria-pressed={siteId === site.id}
-              onClick={() => setSite(site.id)}><Glyph name={RESEARCH_BUILDINGS[site.kind][1]}/>{stationLabel(site)}</button>)}</div> : <p>Построек пока нет.</p>}
-          </section>
-          {station && <section className="pixel-window research-card" key={station.id}>
-            <ResearchStationArt kind={station.kind} active={station.power > 0}/>
-            <h3>{stationLabel(station)}</h3>
-            {['lab','pump','lamp'].includes(station.kind) && <p>{net ? `Питание · ${Math.round((station.power ?? 0) * 100)}%` : 'Вне зоны сети'}</p>}
-            {chargeCapacity(station) > 0 && <p>Заряд · {Math.floor(station.charge ?? 0)} / {chargeCapacity(station)}</p>}
-            {hasResearch(state,'metering') && net && <p>Сеть · {net.nodes.length} узл. · Запрос {net.nodes[0].grid?.demand ?? 0} ед. · Доступно {Math.round(net.nodes[0].grid?.supply ?? 0)} ед.</p>}
-            {station.kind === 'lab' && <p>Назначь исследователя в профиле ёжика и подключи лабораторию к сети.</p>}
-            <div className="research-actions"><button type="button" className="pixel-button mini" onClick={() => onFocus(station)}>Показать на карте</button></div>
-            <StationActions state={state} site={station} dispatch={dispatch}/>
-          </section>}
-        </div>}
+      <nav className="research-tabs" aria-label="Разделы исследований">
+        {[['tree','Проекты','tree'],['manual','Ручная работа','flask'],['build','Строительство','work'],
+          ...(sites.length ? [['stations','Постройки','house']] : [])].map(([key,label,icon]) =>
+          <button className="pixel-button" type="button" key={key} aria-pressed={tab === key} onClick={() => setTab(key)}><Glyph name={icon}/>{label}</button>)}
+      </nav>
+      {tab === 'tree' && <div className="research-layout">
+        <ResearchGraph state={state} selected={selected} select={setSelected}/>
+        <div><GameSelect label="Проект" value={selected} options={options(Object.entries(PROJECTS).map(([id,data]) => [id,`${RESEARCH_BRANCHES[data[1]]} · ${data[0]}`]))} onChange={setSelected}/>
+          <ProjectDetails state={state} selected={selected} dispatch={dispatch}/></div>
+      </div>}
+      {tab === 'manual' && <ChallengeDesk state={state} dispatch={dispatch}/>}
+      {tab === 'build' && <>
+        <GameSelect label="Категория построек" value={buildGroup} onChange={setBuildGroup}
+          options={options([['all','Все'],['grid','Питание и полив'],['facilities','Исследования и обучение'],['decoration','Декор и досуг']])}/>
+        <div className="industry-grid">{Object.entries(RESEARCH_BUILDINGS).filter(([key,data]) => (!data[3] || hasResearch(state,data[3]))
+          && (buildGroup === 'all' || buildingCategory(key) === buildGroup)).map(([key,[name,,price]]) =>
+          <section key={key} className="pixel-window research-card research-build-card"><ResearchStationArt kind={key}/><h3>{name}</h3>
+            <p>{buildingDescriptions[key]}</p>
+            {key === 'pump' && !electricity && <p>После монтажа подключи насос к сети.</p>}
+            <button type="button" className="pixel-button" disabled={state.trade.coins < price} onClick={() => onBuild(key)}>Поставить · {format(price)} монет</button>
+          </section>)}</div>
       </>}
+      {tab === 'stations' && <div className="research-layout">
+        <section className="pixel-window research-card">
+          <h3>Постройки</h3>
+          {sites.length ? <div className="research-station-list">{sites.map(site => <button key={site.id} type="button" className="pixel-button" aria-pressed={siteId === site.id}
+            onClick={() => setSite(site.id)}><Glyph name={RESEARCH_BUILDINGS[site.kind][1]}/>{stationLabel(site)}</button>)}</div> : <p>Построек пока нет.</p>}
+        </section>
+        {station && <section className="pixel-window research-card" key={station.id}>
+          <ResearchStationArt kind={station.kind} active={station.power > 0}/>
+          <h3>{stationLabel(station)}</h3>
+          {['lab','pump','lamp'].includes(station.kind) && <p>{net ? `Питание · ${Math.round((station.power ?? 0) * 100)}%` : 'Вне зоны сети'}</p>}
+          {chargeCapacity(station) > 0 && <p>Заряд · {Math.floor(station.charge ?? 0)} / {chargeCapacity(station)}</p>}
+          {hasResearch(state,'metering') && net && <p>Сеть · {net.nodes.length} узл. · Запрос {net.nodes[0].grid?.demand ?? 0} ед. · Доступно {Math.round(net.nodes[0].grid?.supply ?? 0)} ед.</p>}
+          {station.kind === 'lab' && <p>Назначь исследователя в профиле ёжика и подключи лабораторию к сети.</p>}
+          <div className="research-actions"><button type="button" className="pixel-button mini" onClick={() => onFocus(station)}>Показать на карте</button></div>
+          <StationActions state={state} site={station} dispatch={dispatch}/>
+        </section>}
+      </div>}
     </div>
   </dialog>;
 }

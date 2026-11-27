@@ -25,12 +25,13 @@ import { soilRate } from './siting.js';
 import { useGameAudio } from './sound.js';
 import { GameSelect } from './game-select.jsx';
 import { ProfileGlyph } from './profile-art.jsx';
+import { PerkIcon } from './perk-art.jsx';
 import { perkDescription, PERK_TIERS } from './perks.js';
 import { availablePerkJobs, JobAdvice } from './job-advice.jsx';
 import { MainMenu } from './main-menu.jsx';
 import { PICNIC_SPOT, PicnicScene } from './picnic.jsx';
 import { LodgePanel, PerkReveal, ResearchScreen, ResearchStationArt } from './research-screen.jsx';
-import { scientistReady, scientistStall } from './commission.js';
+import { researchUnlocked, scientistReady, scientistStall } from './commission.js';
 import { gridPlacement, hasResearch, powerNetworks, RESEARCH_BUILDINGS, researchBuildSite, researchSites, stationLabel } from './research.js';
 import { beginnerTask, STOCK_LESSON } from './tutorial.js';
 import './style.css';
@@ -153,11 +154,11 @@ function MapSprite({ item, state, handlers, mode, selected, guided }) {
   if (kind === 'wild') {
     return <button type="button" className="map-item berry-item" style={base} aria-label={`Дикие ягоды: ${item.fruit}`}
       onClick={event => handlers.wild(event, item)}>
-      <BerryBushArt fruit={item.fruit}/>
+      <BerryBushArt fruit={item.fruit} point={item}/>
       {item.fruit > 0 && <span className="fruit-label berry">{item.fruit}</span>}
     </button>;
   }
-  if (kind === 'flower') return <button type="button" className="map-item flower-item" style={base} aria-label="Подобрать цветок бодрости" onClick={event => handlers.flower(event, item)}><FlowerArt variant={item.variant}/></button>;
+  if (kind === 'flower') return <button type="button" className="map-item flower-item" style={base} aria-label="Подобрать цветок бодрости" onClick={event => handlers.flower(event, item)}><FlowerArt variant={item.variant} point={item}/></button>;
   if (kind === 'basket') {
     const orchard = item.orchard;
     const receipt = orchard.pulse && state.time - orchard.pulse.at < 800 ? orchard.pulse : null;
@@ -229,14 +230,14 @@ const PlantSprite = memo(function PlantSprite({ id, x, y, variety, fruit, dry, g
   if (isFieldCrop(variety)) {
     const label = dry ? `Полить: ${name}` : fruit ? `Собрать: ${name} ×${fruit}` : `${name} · растёт`;
     return <button type="button" className={`map-item berry-item${dry ? ' dry' : ''}`} style={position} aria-label={label} onClick={click}>
-      {variety === 'wheat' ? <WheatArt ripe={fruit > 0} dry={dry}/> : <BerryBushArt fruit={fruit} drying={dry} watered={!fruit && !dry}/>}
+      {variety === 'wheat' ? <WheatArt ripe={fruit > 0} dry={dry} point={{x,y}}/> : <BerryBushArt fruit={fruit} point={{x,y}} drying={dry} watered={!fruit && !dry}/>}
       {dry && <span className="fruit-label berry"><Glyph name="water"/></span>}
     </button>;
   }
   const label = clearing ? `Срубить дерево. ${name}` : `${name}, яблок: ${fruit}`;
   return <button type="button" className={`map-item tree-item${fruit ? ' ripe' : ''}`}
     data-tutorial-highlight={guided || undefined} style={{ ...position, '--wind-delay': `-${id % 19 * 5}s` }} aria-label={label} onClick={click}>
-    <span key={animation} className={`tree-motion${animation ? ' touched' : ''}`}><AppleTree fruit={fruit} variety={variety} grafted={grafted}/></span>
+    <span key={animation} className={`tree-motion${animation ? ' touched' : ''}`}><AppleTree fruit={fruit} point={{x,y}} variety={variety} grafted={grafted}/></span>
   </button>;
 });
 
@@ -429,7 +430,7 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
         {ghost && eligibleBuilding && <div className={`plant-preview industry-ghost ${buildSite ? 'allowed' : ''}`} style={xy(buildSite ?? hover)}>
           <IndustryArt site={{ kind: building }}/></div>}
         {ghost && !tradePlacement && !building && mode !== 'assign' && mode !== 'clear' && <div className={`plant-preview ${valid ? 'allowed' : ''}${placingSprinkler ? ' sprinkler-preview' : planting ? ' tree-preview' : ''}`} style={{ ...xy(hover), zIndex: WORLD.height + 4 }} aria-hidden="true">
-          {planting ? variety === 'wheat' ? <WheatArt dry/> : variety === 'berry' ? <BerryBushArt fruit={0} drying/> : <AppleTree fruit={0} variety={variety}/> : placingSprinkler ? <SprinklerArt spray={false} level={orchardsById[orchardId]?.irrigationLevel}/> : <BasketArt level={orchardsById[orchardId]?.basketLevel}/>}
+          {planting ? variety === 'wheat' ? <WheatArt dry point={hover}/> : variety === 'berry' ? <BerryBushArt fruit={0} point={hover} drying/> : <AppleTree fruit={0} variety={variety} point={hover}/> : placingSprinkler ? <SprinklerArt spray={false} level={orchardsById[orchardId]?.irrigationLevel}/> : <BasketArt level={orchardsById[orchardId]?.basketLevel}/>}
         </div>}
       </div>
     </div>
@@ -737,7 +738,7 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
       <HedgeSprite hedge={recruit}/><strong>{recruit.name}</strong>
       <div className="recruit-stats">{Object.entries(recruit.stats).map(([key, value]) =>
         <span key={key} aria-label={`${({speed:'Скорость', strength:'Сила', endurance:'Выносливость', dexterity:'Ловкость', handling:'Сноровка', foraging:'Поиск'})[key]}: ${value}`}><ProfileGlyph name={key}/>{value}</span>)}</div>
-      <p>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perkDescription(recruit.perk,availablePerkJobs(state,places))}` : 'Без особого навыка'}</p>
+      <p className="recruit-perk">{perk && <PerkIcon perk={recruit.perk}/>}<span>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perkDescription(recruit.perk,availablePerkJobs(state,places))}` : 'Без особого навыка'}</span></p>
       <JobAdvice places={places} worker={recruit}/>
       <button type="button" className="pixel-button" disabled={state.apples < rerollPrice(state)}
         onClick={() => dispatch('rerollRecruit')}>Другой кандидат · {icon('apple',number.format(rerollPrice(state)))}</button>
@@ -865,6 +866,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
   const [focusPoint, setFocusPoint] = useState(null);
   const [industry, setIndustry] = useState(null);
   const [research, openResearch] = useState(null);
+  const researchOpen = researchUnlocked(state);
   const [roadStart, setRoadStart] = useState(null);
   const [error, setError] = useState(null);
   const [reading, setReading] = useState(null);
@@ -1038,7 +1040,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
 
   useEffect(() => {
     const hotkey = event => {
-      if (reading || !active || mode === 'assign' || treeOpen || saveOpen || marketId !== null || industry || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.code !== 'KeyP') return;
+      if (reading || !active || mode === 'assign' || treeOpen || saveOpen || marketId !== null || industry || research || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.code !== 'KeyP') return;
       if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.matches('input, textarea, select, [role="combobox"], [role="option"]'))) return;
       if (!state.seeds && !state.goldSeeds) return;
       event.preventDefault();
@@ -1047,7 +1049,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
     };
     window.addEventListener('keydown', hotkey);
     return () => window.removeEventListener('keydown', hotkey);
-  }, [state.seeds, state.goldSeeds, treeOpen, saveOpen, marketId, industry, mode, reading, active]);
+  }, [state.seeds, state.goldSeeds, treeOpen, saveOpen, marketId, industry, research, mode, reading, active]);
 
   function inspect(worker, focusOnMap = false) {
     setProfile(worker.id);
@@ -1127,7 +1129,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
       onMarket={item => { if (!mode) setMarketId(item.stallId); }}
       onIndustry={site => {
         if (mode) return;
-        if (String(site.id).startsWith('research:')) openResearch(site.id);
+        if (String(site.id).startsWith('research:')) { if (researchOpen) openResearch(site.id); }
         else setIndustry(site.id === 'house' ? 'overview' : site.id);
       }}
       onWater={({ orchardId }) => { dispatch('refillCan', { orchardId }); setError(null); }}
@@ -1147,6 +1149,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
       </div>
       <div className="hud-actions">
         {state.trade.permit && <button type="button" className="pixel-button industry-toggle" aria-label="Хозяйство" onClick={() => setIndustry('overview')}>{icon('table', 'Хозяйство')}</button>}
+        {researchOpen && <button type="button" className="pixel-button research-toggle" aria-label="Исследования" onClick={() => openResearch('overview')}>{icon('flask', 'Исследования')}</button>}
         <button type="button" className="pixel-button square" aria-pressed={audio.effects} aria-label="Звуки" onClick={audio.toggleEffects}><Glyph name="sound"/></button>
         <button type="button" className="pixel-button square" aria-pressed={audio.ambience} aria-label="Музыка и звуки природы" onClick={audio.toggleAmbience}><Glyph name="note"/></button>
         {state.trade.stalls.length > 0 && <button type="button" className="pixel-button square trade-world-button" aria-label="Открыть торговую лавку"
@@ -1184,13 +1187,13 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
       <button type="button" className="pixel-button" aria-controls="panel-shop" data-tutorial-highlight={Boolean(shopTarget && !shopOpen) || undefined} aria-expanded={shopOpen} onClick={() => { setShopOpen(!shopOpen); setPartyOpen(false); }}>{icon('seed', 'Лавка')}</button>
       <button type="button" className="pixel-button" onClick={() => setTreeOpen(true)}>{icon('tree', 'Улучшения')}</button>
       {state.trade.permit && <button type="button" className="pixel-button" onClick={() => setIndustry('overview')}>{icon('table', 'Хозяйство')}</button>}
+      {researchOpen && <button type="button" className="pixel-button mobile-research" aria-label="Исследования" onClick={() => openResearch('overview')}>{icon('flask', 'Наука')}</button>}
     </nav>
     {reveal && <PerkReveal state={state} event={reveal} dispatch={dispatch}/>}
-    {research && <ResearchScreen state={state} dispatch={dispatch} initialSite={research === 'overview' ? null : research}
+    {researchOpen && research && <ResearchScreen state={state} dispatch={dispatch} initialSite={research === 'overview' ? null : research}
       onClose={() => openResearch(null)} onFocus={site => { openResearch(null); setFocusPoint({x:site.x,y:site.y}); }}
       onBuild={kind => { openResearch(null); changeMode(`build:r-${kind}`); }}/>}
     {industry && <IndustryScreen state={state} dispatch={dispatch} initialSite={industry === 'overview' ? null : industry}
-      onResearch={() => { setIndustry(null); openResearch('overview'); }}
       onClose={() => setIndustry(null)} onBuild={kind => {
         changeMode(`build:${kind}`);
         if (kind === 'mine') setFocusPoint({ ...COAL_SITES[1] });

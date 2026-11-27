@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.2.2
+
+- The estate map and warehouse reveal layers, stations, and goods as players discover them. The map shows routes hedgehogs have walked between facilities.
+- Research has its own screen and menu entry after the scientist’s commission is complete.
+- Redesigned resource and upgrade icons, and added individual 32×32 pixel-art perk tiles.
+- Foliage takes on the color of the surrounding terrain.
+
+See the [0.7.2.2 release notes](versions/0.7.2.2/RELEASE.md).
+
 ## 0.7.2.1
 
 - Added a hidden, animated picnic scene on the map at half its original size.

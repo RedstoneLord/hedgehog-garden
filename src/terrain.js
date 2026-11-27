@@ -169,6 +169,36 @@ function groundShade(px, py, wx, wy, tone) {
   return base;
 }
 
+function grassRegion(px, py, rough) {
+  return field(px, py, 65) * .47 + field(px, py, 24) * .38 + field(px, py, 8) * .13 + (rough - .5) * .025;
+}
+
+function grassShade(px, py, region) {
+  const tone = Math.max(0, Math.min(grass.length - 1, Math.floor(region * 10)));
+  return groundShade(px, py, (px + .5) * PIXEL, (py + .5) * PIXEL, tone);
+}
+
+const rgbCache = new Map();
+function color(hex) {
+  if (!rgbCache.has(hex)) rgbCache.set(hex, [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16)]);
+  return rgbCache.get(hex);
+}
+
+const grassReference = color(grass[4]);
+
+export function tintFoliage(palette, keys, point) {
+  if (!point) return palette;
+  const px = Math.floor(point.x / PIXEL), py = Math.floor(point.y / PIXEL);
+  const ground = color(grassShade(px, py, grassRegion(px, py, hash(px, py))));
+  const local = { ...palette };
+  for (const key of keys) {
+    const channels = color(palette[key]).map((value, index) => Math.max(0, Math.min(255,
+      Math.round(value + (ground[index] - grassReference[index]) * .68))));
+    local[key] = '#' + channels.map(value => value.toString(16).padStart(2, '0')).join('');
+  }
+  return local;
+}
+
 const shore = ['#839b71', '#a1a77b', '#b7b284'];
 const waterColors = ['#426f78', '#527f89', '#608d96', '#6d9ea3', '#80afb3', '#a5c5bd'];
 const roadColors = ['#827758', '#a38f61', '#b5a071', '#cab781', '#d7c38b'];
@@ -265,12 +295,6 @@ const bushes = [
   leafySprite(20, 12, [[8, 4, 6, 4], [14, 6, 5, 4], [5, 7, 5, 4]]),
 ];
 
-const rgbCache = new Map();
-function color(hex) {
-  if (!rgbCache.has(hex)) rgbCache.set(hex, [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16)]);
-  return rgbCache.get(hex);
-}
-
 export function createTerrainPixels(waterFrame = 0, windFrame = 0) {
   const { width, height } = TERRAIN_SIZE;
   const originX = WORLD.x / PIXEL;
@@ -290,9 +314,8 @@ export function createTerrainPixels(waterFrame = 0, windFrame = 0) {
       const wy = (py + .5) * PIXEL;
       const tile = terrainAt(wx, wy);
       const rough = hash(px, py);
-      const region = field(px, py, 65) * .47 + field(px, py, 24) * .38 + field(px, py, 8) * .13 + (rough - .5) * .025;
-      const shade = Math.max(0, Math.min(grass.length - 1, Math.floor(region * 10)));
-      let tone = groundShade(px, py, wx, wy, shade);
+      const region = grassRegion(px, py, rough);
+      let tone = grassShade(px, py, region);
       if (tile.water < 58) tone = shore[tile.water < 49 ? 2 : tile.water < 53 ? 1 : 0];
       if (tile.kind === 'road') {
         const index = tile.road > 18 ? 0 : tile.road > 14 ? 1 : rough > .97 ? 4 : region > .52 ? 3 : 2;
@@ -362,7 +385,9 @@ export function createTerrainPixels(waterFrame = 0, windFrame = 0) {
     for (let x = (-originX % 9 + 9) % 9; x < width; x += 9) {
       if (hash(x + originX + 13, y + originY + 19) > .81) {
         const tuft = tufts[Math.floor(hash(x + originX - 32, y + originY) * tufts.length)];
-        putSprite(x + Math.floor(hash(y + originY, x + originX) * 9), y, tuft, tuftColors);
+        const left = x + Math.floor(hash(y + originY, x + originX) * 9);
+        putSprite(left, y, tuft, tintFoliage(tuftColors, ['a','b','t'],
+          { x:(left + originX) * PIXEL, y:(y + originY) * PIXEL }));
       }
     }
   }
@@ -388,7 +413,11 @@ export function createTerrainPixels(waterFrame = 0, windFrame = 0) {
       } else if (hash(x, y - 82) > .91) {
         [art, palette] = [rocks[size], rockColors];
       }
-      if (art && clearOfTerrain(x - originX, y - originY, art)) props.push({ x: x - originX, y: y - originY, art, palette, sway });
+      if (art && clearOfTerrain(x - originX, y - originY, art)) {
+        if (palette !== rockColors) palette = tintFoliage(palette, ['d','m','l','s'],
+          { x:(x + art[0].length / 2) * PIXEL, y:(y + art.length - 2) * PIXEL });
+        props.push({ x: x - originX, y: y - originY, art, palette, sway });
+      }
     }
   }
 

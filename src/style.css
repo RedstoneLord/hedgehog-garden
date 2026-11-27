@@ -339,7 +339,7 @@ svg { display: block; }
 .portrait-caption small { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #ebcba5; }
 .portrait-caption button { flex: none; }
 .profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.profile-stat, .perk-icon {
+.profile-stat {
   position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 1;
   padding: 0; border: 2px solid #936c62;
   background: repeating-linear-gradient(0deg, #39253d50 0 2px, transparent 2px 5px), var(--tile, #32233c);
@@ -347,7 +347,7 @@ svg { display: block; }
   color: var(--accent, #ffe0a9);
 }
 .profile-stat:hover, .profile-stat:focus-visible { border-color: var(--accent); }
-.profile-stat > svg, .perk-icon > svg { width: 80%; }
+.profile-stat > svg { width: 80%; }
 .profile-stat > span {
   position: absolute; right: 3px; bottom: 3px; min-width: 19px; padding: 1px 3px; text-align: center;
   font-size: 15px; line-height: 1; background: #241b2b; box-shadow: -1px -1px #aa7f6e;
@@ -364,10 +364,6 @@ svg { display: block; }
 }
 .profile-perk h3 { font-size: 16px; color: #fadc9d; margin-bottom: 3px; }
 .profile-perk p { font-size: 12px; color: #edd3af; }
-.perk-icon { border-color: #c09470; }
-.perk-icon[data-perk='pockets'] { --tile: #453135; }
-.perk-icon[data-perk='glean'] { --tile: #4c2b3b; }
-.perk-icon[data-perk='bloom'] { --tile: #412843; }
 .profile-assignment { display: grid; gap: 8px; border-top: 1px solid #946b57; padding-top: 7px; }
 .profile-area { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: end; }
 .profile-assignment .orchard-select select { min-height: 33px; }
@@ -517,3 +513,10 @@ svg { display: block; }
 .job-advice ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; padding: 0; list-style: none; }
 .job-advice li { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; background: #302539; border: 1px solid #9b7658; }
 .job-advice .glyph { width: 14px; height: 14px; flex: none; }
+
+.perk-sprite { flex: none; image-rendering: pixelated; filter: drop-shadow(0 2px 0 #201726); }
+.profile-perk-art { width: 54px; height: 54px; align-self: start; }
+.recruit-perk { display: flex; align-items: center; gap: 8px; }
+.perk-award-icon { width: 64px; height: 64px; filter: drop-shadow(0 0 16px #eeb4659a); }
+
+.research-card h3:has(.perk-sprite) { display: flex; align-items: center; gap: 7px; }
