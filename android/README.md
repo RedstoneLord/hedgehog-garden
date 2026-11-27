@@ -1,4 +1,4 @@
-# Hedgehog Garden for Android
+# Ёжиковый сад для Android
 
 The app runs the bundled web build offline. It saves the garden atomically in app-private storage, and the in-game save dialog can import or export a JSON backup through Android's file picker.
 

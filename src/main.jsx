@@ -783,7 +783,7 @@ function SaveTransfer({ state, onClose, onImport }) {
       const imported = importGame(await file.text());
       if (attempt !== readId.current) return;
       if (imported) setCandidate(imported);
-      else setError('Файл не похож на сохранение Яблочного сада.');
+      else setError('Файл не похож на сохранение игры «Ёжиковый сад».');
     } catch {
       if (attempt === readId.current) setError('Не удалось прочитать файл сохранения.');
     }

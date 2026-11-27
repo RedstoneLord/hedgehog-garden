@@ -45,7 +45,7 @@ if [[ "$actual_signer" != "$expected_signer" ]]; then
 fi
 
 gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-  --title "Яблочный сад $version для Android" --notes-file "$notes" --latest
+  --title "Ёжиковый сад $version для Android" --notes-file "$notes" --latest
 
 asset_digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
   --jq ".assets[] | select(.name == \"$(basename "$apk")\") | .digest")

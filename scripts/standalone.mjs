@@ -18,6 +18,8 @@ const javascript = await readFile(resolve(buildDirectory, script[1]), 'utf8');
 const css = await readFile(resolve(buildDirectory, stylesheet[1]), 'utf8');
 html = html.replace(moduleTag, () => `<script type="module">${javascript.replaceAll(/<\/script/gi, '<\\/script')}</script>`);
 html = html.replace(cssTag, () => `<style>${css}</style>`);
+// Home-screen installation is served by the hosted build. The standalone tab icon is already embedded.
+html = html.replace(/^\s*<link rel="(?:manifest|apple-touch-icon)"[^>]*>\r?\n/gm, '');
 
 await writeFile(output, html);
 console.log(`Standalone build written to ${output}`);

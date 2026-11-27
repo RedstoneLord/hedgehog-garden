@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- Redesigned the main menu with an animated orchard and an original pixel-art logo for «Ёжиковый сад». Background motion can be paused and follows the device’s reduced-motion setting.
+- Added a browser favicon and mobile home-screen icons. The Android launcher icon adapts to the device’s icon shape.
+
+See the [0.7.1 release notes](versions/0.7.1/RELEASE.md).
+
 ## 0.7.0
 
 - The scientist’s 14-good commission and final 25,000-coin payment unlock research. Start with Electricity or Irrigation and earn research points from puzzles or a powered lab.

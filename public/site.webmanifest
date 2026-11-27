@@ -1,0 +1,15 @@
+{
+  "name": "Ёжиковый сад",
+  "short_name": "Ёжиковый сад",
+  "lang": "ru",
+  "id": "./",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#23382b",
+  "theme_color": "#2f422f",
+  "icons": [
+    { "src": "icons/orchard-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/orchard-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/orchard-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
