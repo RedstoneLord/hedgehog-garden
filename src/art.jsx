@@ -176,12 +176,12 @@ const hats = {
 };
 const hatPaths = Object.fromEntries(Object.entries(hats).map(([id, rows]) => [id, pixelPaths(rows)]));
 
-export function HedgeSprite({ hedge, hidden = false, walking = false, sleeping = false, speaking = false, className = '' }) {
+export function HedgeSprite({ hedge, hidden = false, walking = false, sleeping = false, speaking = false, eyesClosed = false, className = '' }) {
   const [O, Q, q] = quillColors[hedge.quills] ?? quillColors[0];
   const [S, s, P] = skinColors[hedge.skin] ?? skinColors[0];
   const color = { O, Q, q, S, s, P, E: '#211820' };
   const pose = sleeping ? 'sleeping' : walking ? 'walking' : '';
-  const pixels = sleeping ? sleepingHedge : hedge.pose === 1 ? hatchHedge : restingHedge;
+  const pixels = sleeping || eyesClosed ? sleepingHedge : hedge.pose === 1 ? hatchHedge : restingHedge;
   return <svg viewBox="0 0 28 22" className={`hedge-sprite ${pose} ${className}`} aria-hidden="true">
     <g transform={hedge.left ? 'translate(28 0) scale(-1 1)' : undefined}>
       <g transform={sleeping ? 'translate(0 5) scale(1 .75)' : undefined}>

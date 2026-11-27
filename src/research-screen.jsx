@@ -136,9 +136,9 @@ function ChallengeDesk({ state, dispatch, stationId }) {
   </section>;
 }
 
-export function LodgePanel({ state, dispatch }) {
+export function LodgePanel({ state, dispatch, guided }) {
   if (!researchUnlocked(state) || !state.lodge) return null;
-  return <details className="crew-manager"><summary>Домик отдыха · {state.lodge.names.length + state.lodge.waiting.length}</summary>
+  return <details className="crew-manager"><summary data-tutorial-highlight={guided || undefined}>Домик отдыха · {state.lodge.names.length + state.lodge.waiting.length}</summary>
     {state.lodge.waiting.map(({worker,until}) => <div className="lodge-row" key={worker.id}>
       <span>{worker.name} · {Math.max(0,Math.ceil((until - Date.now())/60000))} мин</span>
       <button type="button" className="pixel-button mini" disabled={state.workers.length >= housingCapacity(state) || until <= Date.now()}

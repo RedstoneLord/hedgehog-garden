@@ -1,0 +1,90 @@
+.guide-popup {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(590px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 24px;
+  border: 0;
+  color: var(--light);
+  overflow: auto;
+}
+.guide-popup[open] {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px 18px;
+}
+.guide-popup::backdrop { background: #1e172776; }
+.guide-art {
+  display: grid;
+  place-items: center;
+  min-height: 82px;
+  background: #a27964;
+  box-shadow: inset 0 0 0 2px #432e40, inset 0 0 0 4px var(--gold);
+}
+.guide-art .hedge-sprite { width: 90%; }
+.guide-art .hedge-body { animation: guide-speak .83s steps(1,end) 8; }
+.guide-copy b { display: block; color: #ffdf9f; font-size: 23px; }
+.guide-copy h2 { margin-top: 3px; color: #f4d3a0; font-size: 17px; }
+.guide-copy p { margin-top: 8px; color: #fff0d3; line-height: 1.48; font-size: 16px; }
+.guide-continue { grid-column: 2; justify-self: end; min-height: 40px; }
+.beginner-task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  max-width: min(520px, 100%);
+}
+.beginner-icon { flex: 0 0 39px; }
+.beginner-icon svg { width: 100%; }
+.beginner-copy { min-width: 0; }
+.beginner-copy strong { color: #ffe1a2; font-size: 16px; }
+.beginner-copy p { margin-top: 2px; color: #fff0d3; font-size: 13px; }
+.beginner-progress { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: #e6c29d; }
+.beginner-progress span { display: inline-flex; align-items: center; gap: 3px; }
+.beginner-progress .glyph { width: 13px; height: 13px; }
+.beginner-task button { margin-left: auto; pointer-events: auto; }
+[data-tutorial-highlight] {
+  outline: 2px solid #ffe5a6;
+  outline-offset: -3px;
+  animation: tutorial-highlight 1.8s ease-in-out infinite alternate;
+}
+.map-item[data-tutorial-highlight] {
+  outline: 3px dashed #fff1b6;
+  outline-offset: 5px;
+  border-radius: 8px;
+  filter: drop-shadow(0 0 5px #ffce79);
+}
+.tutorial-plant-target {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  border: 4px dashed #fff1b6;
+  border-radius: 10px;
+  color: #fff0ae;
+  background: #ffcc6152;
+  pointer-events: none;
+  animation: tutorial-highlight 1.8s ease-in-out infinite alternate;
+}
+.tutorial-plant-target .glyph { width: 29px; height: 29px; filter: drop-shadow(2px 2px #553944); }
+@keyframes tutorial-highlight { to { outline-color: #efb46a; box-shadow: inset 0 0 0 4px #ffd68742; } }
+
+@media (max-width: 799px) {
+  .guide-popup { padding: 16px; }
+  .guide-popup[open] { grid-template-columns: 57px minmax(0, 1fr); gap: 10px; }
+  .guide-art { min-height: 52px; }
+  .guide-copy b { font-size: 20px; }
+  .guide-copy h2, .guide-copy p { font-size: 14px; }
+  .game-shell .status-wrap.with-sheet { top: max(103px, calc(env(safe-area-inset-top) + 100px)); bottom: auto; }
+  .beginner-task { gap: 7px; padding: 8px 9px; }
+  .beginner-icon { flex-basis: 33px; }
+  .beginner-task .pixel-button { min-height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tutorial-highlight], .tutorial-plant-target, .guide-art .hedge-body, .guide-art .mouth-open { animation: none; }
+}

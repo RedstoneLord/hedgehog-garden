@@ -75,7 +75,6 @@
   .mobile-dock button[aria-expanded="true"] { background: #76535d; }
   .upgrade-toggle, .industry-toggle { display: none; }
   .game-shell .status-wrap { bottom: 104px; }
-  .game-shell .guide-popup { bottom: 58px; }
   
   .industry-station { grid-template-columns: minmax(0, 1fr) auto; }
   .industry-station small { grid-row: 2; }

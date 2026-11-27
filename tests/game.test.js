@@ -4,6 +4,8 @@ import {
   act, advance, BALANCE, canMoveBasket, canPlaceSprinkler, canPlant, canSendBasket, flowerActive, flowerDetection, FOREST_WORKPLACE, groupCapacity, hirePrice,
   importGame, newGame, nextLevelXp, orchardBeds, PLOTS, potatoAvailable, productionRate, restoreGame, seedPrice, UPGRADES, upgradeStatus, visibleUpgrades, workerCharacteristics, workerWorkplace,
 } from '../src/game.js';
+import { beginnerTask } from '../src/tutorial.js';
+import { advanceDialogue } from '../src/hedge-dialogue.js';
 import { OLD_MAP_OFFSET, terrainKind } from '../src/terrain.js';
 import { basketLimit, DEFAULT_STATS, EAST_ORCHARD, fruitCount, GARDEN_RATES, HOUSE, SHOP, shopPrice, SPRINKLER_LIMIT, sprinklerPrice, VARIETIES } from '../src/orchard.js';
 import { distance, findRoute } from '../src/routes.js';
@@ -108,6 +110,36 @@ test('manual collection buys the mystery once, Potato guides from the interface 
   assert.equal(act(game, 'unlock'), game);
   assert.equal(act(game, 'favorite', { id: 'potato' }), game);
   assert.equal(act(game, 'help').guide.key, 'help');
+});
+
+test('beginner guidance follows the current garden and ends when a helper is hired', () => {
+  let game = newGame(23);
+  const planting = beginnerTask(game);
+  assert.equal(planting.chapter.id, 'plant');
+  assert.ok(canPlant(game, planting.point));
+
+  game = grow(game, planting.point);
+  const harvest = beginnerTask(game);
+  assert.equal(harvest.target, `tree-${game.trees[0].id}`);
+  game = reap(game);
+  assert.deepEqual(beginnerTask(game).basket, { count: 5, limit: 10 });
+  game = reap(advance(game, BALANCE.regrowth));
+  assert.equal(beginnerTask(game).target, 'basket-west');
+  game = act(game, 'sendBasket');
+  const delivery = beginnerTask(importGame(JSON.stringify(game)));
+  assert.equal(delivery.chapter.id, 'delivery');
+  assert.deepEqual({ x: delivery.point.x, y: delivery.point.y }, HOUSE);
+  assert.equal(game.apples, 0);
+
+  game = growToMystery(game);
+  assert.equal(beginnerTask(game).target, 'mystery');
+  game = act(game, 'unlock');
+  assert.match(game.guide.text, /^Я Картошка!/);
+  assert.equal(beginnerTask(game), null);
+
+  const empty = { ...game, workers: [], apples: 1000 };
+  assert.equal(beginnerTask(empty).target, 'recruit');
+  assert.equal(beginnerTask({ ...empty, apples: 0 }).chapter.id, 'harvest');
 });
 
 test('paid helpers grow exponentially, stay unique and keep randomized appearance on reload', () => {
@@ -260,6 +292,30 @@ test('collaboration does not repeat the dialogue on the next trip', () => {
   game = tick(game, 6000);
   assert.equal(game.lastTalk, firstTalk);
   assert.ok(game.jobs.some(job => job.workers.length === 2));
+});
+
+test('hedgehogs can chat nearby or speak about their current work with one shared cooldown', () => {
+  const game = act({ ...start(), apples: 1000 }, 'recruit');
+  const [first, second] = game.workers;
+  Object.assign(game, { guide: null, jobs: [], time: BALANCE.talkCooldown });
+  advanceDialogue(game, BALANCE.talkCooldown);
+  assert.equal(game.quote.workers.length, 2);
+  assert.equal(game.quote.lines.length, 2);
+  const lastTalk = game.lastTalk;
+
+  game.quote = null;
+  game.time = lastTalk + BALANCE.talkCooldown - 1;
+  advanceDialogue(game, BALANCE.talkCooldown);
+  assert.equal(game.quote, null);
+
+  second.sleepUntil = game.time + 30000;
+  game.time += 1;
+  game.jobs = [{ kind: 'delivery', workers: [first.id] }];
+  const randomSeed = game.random;
+  advanceDialogue(game, BALANCE.talkCooldown);
+  assert.deepEqual(game.quote.workers, [first.id]);
+  assert.match(game.quote.lines[0], /дом/);
+  assert.equal(game.random, randomSeed);
 });
 
 test('a 0.1.0 save keeps planted trees and progress when migrated', () => {

@@ -82,6 +82,7 @@ svg { display: block; }
 .carrying { width: 19px; height: 19px; position: absolute; top: -3px; right: 7px; }
 .world-speech { color: #432a38; background: #f8e1ae; box-shadow: inset 0 0 0 2px #f8e1ae, inset 0 0 0 3px #d49c64, 3px 3px #3c382c57; border: 2px solid #3c2939; position: absolute; bottom: 102%; width: max-content; max-width: 145px; padding: 5px 8px; line-height: 1.1; font-size: 13px; text-align: center; pointer-events: none; z-index: 5; }
 .world-speech::after { content: ''; height: 6px; width: 7px; border-bottom: 2px solid #3c2939; border-left: 2px solid #3c2939; background: #f8e1ae; position: absolute; bottom: -6px; }
+.speaker-solo { left: 50%; transform: translateX(-50%); }.speaker-solo::after { left: calc(50% - 4px); }
 .speaker-0 { right: 57%; }.speaker-0::after { right: 3px; }
 .speaker-1 { left: 55%; }.speaker-1::after { left: 4px; }
 .plant-preview { width: 74px; opacity: .7; pointer-events: none; color: #f1aa80; filter: drop-shadow(0 0 3px #a85b49); }
@@ -155,15 +156,7 @@ svg { display: block; }
 .status-chip button { pointer-events: auto; }
 .notice-chip { color: #f0ce97; }
 .boost { position: absolute; z-index: 8; left: 50%; transform: translateX(-50%); top: 72px; }
-.guide-popup { position: absolute; z-index: 12; left: 50%; bottom: 28px; transform: translateX(-50%); width: min(690px, calc(100% - 36px)); display: grid; grid-template-columns: 108px 1fr auto; gap: 14px; padding: 19px; align-items: center; box-shadow: inset 0 0 0 3px #332037, inset 0 0 0 5px #e0b579, inset 0 0 0 8px #87546a, inset 0 -10px #322639; background: #4b334c; }
-.guide-art { display: grid; place-items: center; width: 100%; min-height: 88px; background: #b08366; box-shadow: inset 0 0 0 2px #432e40, inset 0 0 0 4px #e1b579; }
-.guide-art svg { width: 98px; }
-.guide-art .hedge-body { animation: guide-speak .83s steps(1,end) 8; }
 .hedge-mouth .mouth-open { opacity: 0; animation: guide-mouth .61s steps(1,end) 10 both; }
-.guide-copy b { display: block; color: #ffdf9f; font-size: 23px; margin-bottom: 4px; }
-.guide-copy p { color: #fff0d3; line-height: 1.35; font-size: 18px; }
-.guide-continue { align-self: end; }
-.game-shell:has(.guide-popup) .status-wrap { bottom: 160px; }
 @keyframes guide-speak { 0%, 36%, 100% { transform: none; } 17% { transform: translateY(-1px); } }
 @keyframes guide-mouth { 0%, 50%, 83%, 100% { opacity: 0; } 18%, 68% { opacity: 1; } }
 .save-dialog { width: min(440px, calc(100% - 24px)); max-height: calc(100dvh - 30px); overflow: auto; border: 0; color: #f8dfa9; padding: 18px; }
@@ -198,13 +191,8 @@ svg { display: block; }
   .shop-art { flex-basis: 23px; height: 27px; }
   .camera-controls { right: 9px; bottom: 9px; }
   .status-wrap { bottom: 63px; max-width: calc(100vw - 16px); }
-  .guide-popup { bottom: 69px; width: min(545px,calc(100% - 18px)); padding: 12px; grid-template-columns: 62px 1fr; gap: 6px; }
-  .guide-art { min-height: 50px; }.guide-art svg { width: 55px; }
-  .guide-copy b { font-size: 19px; }.guide-copy p { font-size: 15px; }
-  .guide-continue { grid-column: 2; justify-self: end; }
   .save-button.square { width: 29px; }
   .boost { top: 62px; }
-  .game-shell:has(.guide-popup) .status-wrap { bottom: 167px; }
 }
 @media (max-width:430px) {
 }
@@ -439,7 +427,6 @@ svg { display: block; }
 @media (prefers-reduced-motion: reduce) {
   .world-ambient { display: none; }
   .tree-item .tree-crown { animation: none; }
-  .guide-art .hedge-body, .hedge-mouth .mouth-open { animation: none; }
   .worker-marker svg { animation: none; }
 }
 .hud-level { padding-left: 7px; margin-left: 2px; border-left: 1px solid #967056; font-size: 13px; color: #ead2a6; }

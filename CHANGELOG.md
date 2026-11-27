@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.2.1
+
+- Added a hidden, animated picnic scene on the map at half its original size.
+- Added a guided opening for gardens without a hedgehog, with highlighted targets, basket and apple counters, and a reveal at the first unlock.
+- Картошка’s tutorial messages now dim the game until acknowledged.
+- Hedgehogs have more solo, friendly, and work-related lines. Their shared chat cooldown is 31 seconds.
+
+See the [0.7.2.1 release notes](versions/0.7.2.1/RELEASE.md).
+
 ## 0.7.2
 
 - Recruit previews and hedgehog profiles suggest jobs based on the worker’s stats and perks and the workplaces available in the current garden.

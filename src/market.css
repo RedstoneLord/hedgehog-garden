@@ -4,8 +4,6 @@
 .market-header-actions { display: flex; align-items: center; gap: 6px; }
 .market-content { width: min(1400px,100%); margin-inline: auto; padding: clamp(12px,2.4vw,34px); display: grid; grid-template-columns: minmax(0,1.8fr) minmax(286px,1fr); gap: clamp(12px,2vw,28px); }
 .market-left, .market-sidebar { display: grid; gap: 12px; align-content: start; }
-.market-guide { grid-column: 1/-1; display: grid; grid-template-columns: 65px 1fr auto; gap: 12px; align-items: center; padding: 13px; }
-.market-guide strong { display: block; color: #f2c87f; }
 .market-sales summary { cursor: pointer; }
 .market-sales ul { list-style: none; padding: 0; margin: 6px 0 0; }
 .market-sales li { border-top: 1px solid #ae7850; display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; padding: 6px 0; }
@@ -124,8 +122,6 @@
   .gallery-map-sprite > .hedge-sprite { height: auto; }
   .gallery-caption { padding-inline: 3px; }
   .gallery-caption h3 { font-size: 13px; }
-  .market-guide { grid-template-columns: 46px 1fr; }
-  .market-guide > button { grid-column: 2; justify-self: end; }
   .hud .resource.production, .hud .hud-level { display: none; }
   .trade-world-button.square { width: 29px; }
 }
@@ -150,12 +146,10 @@
   .market-order { width: min(100%, 440px); margin-bottom: 15px; background-color: #503748eb; }
   .market-sidebar { margin-bottom: 15px; max-height: calc(100dvh - 120px); overflow: auto; }
   .market-box { background-color: #503748e8; }
-  .market-guide { z-index: 2; justify-self: start; max-width: 540px; }
 }
 @media (max-width: 899px) {
   .market-content { position: relative; isolation: isolate; grid-template-columns: minmax(0, 1fr); max-width: 760px;
     min-height: calc(100dvh - 60px); padding-top: clamp(252px, 46dvh, 370px); }
-  .market-content:has(.market-guide) .market-guide { z-index: 2; }
   .market-scene { position: fixed; top: 55px; inset-inline: 0; width: 100%; height: calc(100dvh - 55px); min-height: 0;
     border: 0; z-index: -1; pointer-events: none; }
   .market-scene-stall { width: 76%; bottom: auto; top: 24%; }

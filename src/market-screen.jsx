@@ -2,11 +2,10 @@ import { ScientistPanel } from './research-screen.jsx';
 import { scientistStall } from './commission.js';
 import { GameSelect } from './game-select.jsx';
 import { useEffect, useRef, useState } from 'react';
-import { Glyph, HedgeSprite } from './art.jsx';
+import { Glyph } from './art.jsx';
 import { CustomerGallery } from './customer-gallery.jsx';
 import { GOODS, incomingGoods, stockCount } from './industry.js';
 import { CUSTOMERS } from './customers.js';
-import { GUIDE } from './game.js';
 import { CustomerPortrait, MarketLandscape, MarketStallArt } from './trade-art.jsx';
 import { canServe, frontCustomer, MARKET_UPGRADES, marketStock, marketUpgradePrice, orderLines, orderPayment, queueCapacity, stallCapacity } from './trade.js';
 import './market.css';
@@ -25,7 +24,7 @@ function deliveryStatus(state, stall, key, couriers, canDispatch) {
   return `Товар ждёт доставки · ${name.toLowerCase()}.`;
 }
 
-export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBerries, guide, onDismissGuide }) {
+export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBerries }) {
   const dialog = useRef(null);
   const [remove, setRemove] = useState(false);
   const [gallery, showGallery] = useState(false);
@@ -102,10 +101,6 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
         </section>
       </div>
       <div className="market-sidebar">
-        {guide && ['firstSale','wildBerries'].includes(guide.key) && <div className="market-guide pixel-window">
-          <HedgeSprite hedge={GUIDE} speaking/><p><strong>Картошка</strong>{guide.text}</p>
-          <button type="button" className="pixel-button mini" onClick={onDismissGuide}>Понятно</button>
-        </div>}
         {stall.recentSales?.length > 0 && <details className="market-box pixel-window market-sales">
           <summary>Последние продажи</summary>
           <ul>{stall.recentSales.map(sale => <li key={sale.id}>

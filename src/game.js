@@ -1,3 +1,4 @@
+import { advanceDialogue } from './hedge-dialogue.js';
 import { advanceDevelopment, developmentActions, expireLodge, reservedHousing } from './development.js';
 import { advanceScientist, scientistActions, validScientist } from './commission.js';
 import { advanceResearch, decorationBonus, hasResearch, loungeNear, poweredNear, researchActions, researchWorkplaces, validResearch } from './research.js';
@@ -34,7 +35,7 @@ export const BALANCE = {
   mystery: 100, seed: 5, seedGrowth: 1.36, firstHire: 150, hireGrowth: 1.16, firstLevelXp: 16, levelXpGrowth: 1.8, perkChance: .06,
   crop: VARIETIES.red.yield, regrowth: VARIETIES.red.regrowth,
   stride: 106, favoriteBoost: 1.18, flowerBoost: FLOWER_SPEED, flowerDuration: 16000,
-  talkCooldown: 33000, coOpDistance: 278, flowerCooldown: 90000, flowerJitter: 60000, productionWindow: 20000,
+  talkCooldown: 31000, coOpDistance: 278, flowerCooldown: 90000, flowerJitter: 60000, productionWindow: 20000,
 };
 const originalUpgrades = {
   plot1: { name: 'Шире сад', desc: 'Расширяет границы сада у моста.', cost: 10, icon: 'plotWide' },
@@ -120,12 +121,6 @@ export function hedgehogName(value) {
   const name = value.trim().normalize('NFC');
   return name && Array.from(name).length <= HEDGE_NAME_LIMIT && !/\p{Cc}/u.test(name) ? name : null;
 }
-const dialogue = [
-  ['Пойдём вместе?', 'Я с тобой!'],
-  ['Вон сколько яблок.', 'Унесём за раз!'],
-  ['Я возьму крайние.', 'А я остальные.'],
-];
-
 export const plotIndex = state => state.upgrades.includes('plot2') ? 2 : Number(state.upgrades.includes('plot1'));
 export function plotBounds(state, id = START_ORCHARD) {
   if (id === FOREST_ORCHARD) return FOREST_CLEARING;
@@ -459,7 +454,7 @@ const actions = {
     adjustStock(state, 'apples', -BALANCE.mystery);
     state.unlocked = true;
     const friend = generateWorker(state);
-    guide(state, `Я Картошка! Я привёл друга — ${friend.name}. Он соберёт яблоки и отнесёт полную корзину к дому.`, 'intro');
+    guide(state, `Я Картошка! Я привёл друга — ${friend.name}. Он уже работает в саду: собирает яблоки и отвозит полную корзину к дому. Ты тоже можешь собирать и отправлять корзины. Открой «Ёжики» и нажми на его имя, чтобы посмотреть характеристики или назначить работу.`, 'intro');
     return true;
   },
   buySeed(state) {
@@ -972,13 +967,6 @@ function startPick(state, orchard, workers, tree, planned) {
   if (Object.values(routes).some(route => !route)) return false;
   const ids = workers.map(worker => worker.id);
   state.jobs.push({ id: state.nextId++, kind: 'pick', phase: 'seek', workers: ids, orchardId: orchard.id, tree: tree.id, load: 0, routes });
-  if (ids.length > 1) {
-    if (!state.firstCoOp || (state.time - (state.lastTalk ?? -Infinity) >= BALANCE.talkCooldown && random(state) < .25)) {
-      state.quote = { workers: ids, lines: choose(state, dialogue), until: state.time + 4300 };
-      state.lastTalk = state.time;
-    }
-    state.firstCoOp = true;
-  }
   return true;
 }
 
@@ -1105,6 +1093,7 @@ export function advance(state, elapsed) {
   advanceIndustry(next, elapsed / 1000, deposit, (actor, target) => planGardenWalk(next, actor, target));
   advanceDevelopment(next, elapsed / 1000, (actor,target) => planGardenWalk(next,actor,target), () => generateWorker(next),
     assignment => applyPresetAssignment(next,assignment), worker => staminaLimit(next,worker));
+  advanceDialogue(next, BALANCE.talkCooldown);
   earnLevels(next);
   if (next.flowerAt && next.time >= next.flowerAt) {
     if (!next.flowers.length) spawnFlower(next);
