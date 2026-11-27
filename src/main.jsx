@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AppleTree, BasketArt, BedArt, CompostArt, CrateRackArt, FlowerArt, Glyph, HedgeSprite, HouseArt, LoadingTableArt, OrchardFence, OrchardPavers, SleepLetters, SoilArt, SprinklerArt, StorageArt, WorkerMarker, WorldBackdrop } from './art.jsx';
 import {
   act, advance, BALANCE, canMoveBasket, canPlaceSprinkler, canPlant, canSendBasket, constructionPlots, flowerActive, groupCapacity, GUIDE, hirePrice, loadGame,
-  importGame, newGame, nextLevelXp, orchardAt, orchardBeds, plotBounds, potatoAvailable, productionRate, SAVE_KEY, seedPrice,
+  importGame, newGame, nextLevelXp, orchardAt, orchardBeds, PERKS, plotBounds, potatoAvailable, productionRate, SAVE_KEY, seedPrice,
   workerWorkplace, workplaces, workRoleLabel, WORLD,
 } from './game.js';
 import { initialCamera } from './camera.js';
@@ -18,11 +18,14 @@ import { distance } from './routes.js';
 import { farmAvailable, farmSite, GLOBAL_UPGRADES, globalUpgradeLevel, globalUpgradePrice, landFootprint, landPrice, landSite, marketSite, MOVE_FARM_PRICE, PERMIT_PRICE, stallDemand, stallById, stallPrice } from './trade.js';
 import { BerryBushArt, CustomerSprite, MarketStallArt } from './trade-art.jsx';
 import { MarketScreen } from './market-screen.jsx';
-import { BUILDINGS, buildingSite, COAL_SITES, housingCapacity, industryStations } from './industry.js';
+import { BUILDINGS, buildingSite, COAL_SITES, GOODS, housingCapacity, industryStations } from './industry.js';
 import { IndustryArt, MountainArt, WheatArt } from './industry-art.jsx';
 import { IndustryScreen } from './industry-screen.jsx';
-import { plotGap, soilRate } from './siting.js';
+import { soilRate } from './siting.js';
 import { useGameAudio } from './sound.js';
+import { GameSelect } from './game-select.jsx';
+import { ProfileGlyph } from './profile-art.jsx';
+import { PERK_TIERS } from './perks.js';
 import { MainMenu } from './main-menu.jsx';
 import './style.css';
 import './industry.css';
@@ -32,6 +35,7 @@ const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, minim
 const xy = ({ x, y }) => ({ left: x, top: y });
 const rect = ({ x, y, width, height }) => ({ left: x, top: y, width, height });
 const icon = (type, text) => <><Glyph name={type}/>{text && <span>{text}</span>}</>;
+const DEBUG_FAST_FORWARD = false; // Enable for local testing at 6× simulation speed.
 
 const plantingVariety = { plant:'red', plantGold:'gold', plantForest:'forest', plantBerry:'berry', plantWheat:'wheat' };
 const landModes = ['garden', 'farm', 'moveFarm', 'moveGarden'];
@@ -66,12 +70,16 @@ function useGame(screen) {
   useEffect(() => {
     if (screen === 'launch') return;
     const playing = screen === 'game';
+    const stepsPerTick = import.meta.env.DEV && DEBUG_FAST_FORWARD ? 6 : 1;
     let previous = performance.now();
     const tick = playing ? setInterval(() => {
       const now = performance.now();
       const elapsed = Math.min(now - previous, 200);
       previous = now;
-      if (!document.hidden) setState(game => advance(game, elapsed));
+      if (!document.hidden) setState(game => {
+        for (let step = 0; step < stepsPerTick; step++) game = advance(game, elapsed);
+        return game;
+      });
     }, 85) : undefined;
     const save = () => persistGame(latest.current);
     const saveWhenHidden = () => { if (document.hidden) save(); };
@@ -106,7 +114,7 @@ function MapSprite({ item, state, handlers, mode, selected }) {
     const label = site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label;
     return <button type="button" className={`map-item industry-item industry-${site.kind}`} style={base}
       aria-label={`${site.kind === 'house' ? 'Открыть хозяйство' : 'Открыть'}: ${label} ${site.number}`} onClick={event => handlers.industry(event, site)}>
-      <IndustryArt site={site} driver={driver}/><span className="basket-label">{label} {site.number}</span>
+      <IndustryArt site={site} driver={driver} operator={state.workers.find(worker => worker.siteId === site.id && ['maker','miner'].includes(worker.workRole) && distance(worker, site) < 28)}/><span className="basket-label">{label} {site.number}</span>
     </button>;
   }
   if (kind === 'stall') return <button type="button" className="map-item stall-item" style={base}
@@ -134,14 +142,17 @@ function MapSprite({ item, state, handlers, mode, selected }) {
     const receipt = orchard.pulse && state.time - orchard.pulse.at < 800 ? orchard.pulse : null;
     const ready = Boolean(orchard.ready.length);
     const count = fruitCount(orchard.fill);
-    const manual = !state.unlocked && mode !== 'basket';
+    const manual = mode !== 'basket';
     const disabled = manual && !canSendBasket(state, orchard);
+    const inTransit = state.jobs.some(job => job.orchardId === orchard.id && (job.kind === 'manual' || job.kind === 'delivery' && ['haul', 'unload'].includes(job.phase)));
+    const progress = `${count}/${basketLimit(orchard)}`;
+    const status = ready ? disabled ? 'Занята' : 'Полная' : inTransit ? `${progress} · Рейс` : progress;
     const label = manual ? 'Отправить полную корзину к дому' : 'Переместить корзину';
     return <button type="button" className={`map-item basket-item${ready ? ' basket-ready' : ''}`} style={base} aria-disabled={disabled || undefined}
-      aria-label={`${label}. ${orchardName(orchard.id)}. ${ready ? 'Корзина полная.' : `${count} из ${basketLimit(orchard)}.`}`} onClick={event => { if (!disabled) handlers.basket(event, orchard); }}>
+      aria-label={`${label}. ${orchardName(orchard.id)}. ${status}`} onClick={event => { if (!disabled) handlers.basket(event, orchard); }}>
       <span key={receipt?.id} className={`basket-motion${receipt ? ' receiving' : ''}`}><BasketArt level={orchard.basketLevel}/></span>
       {receipt && <span key={`receipt-${receipt.id}`} className="basket-gain" aria-hidden="true"><Glyph name={isBerryOrchard(orchard.id) ? 'berry' : 'apple'}/>+{receipt.amount}</span>}
-      <span className="basket-label">{ready ? 'Полная' : `${count}/${basketLimit(orchard)}`}</span>
+      <span className="basket-label">{status}</span>
     </button>;
   }
   if (kind === 'sprinkler') return <button type="button" className="map-item sprinkler-item" style={base}
@@ -176,10 +187,16 @@ function MapSprite({ item, state, handlers, mode, selected }) {
   const resting = item.sleepUntil !== null;
   const walking = job && !['pick','load','unload','serve'].includes(job.phase);
   const offset = job?.workers.length > 1 ? (pairIndex ? 11 : -11) : (!job && !resting ? ((item.order % 5) - 2) * 12 : 0);
-  return <><button type="button" className={`map-item worker-item${state.favorites.includes(item.id) ? ' favorite-worker' : ''}`} style={{ ...base, '--offset': `${offset}px` }} aria-label={`Осмотреть ёжика: ${item.name}${resting ? '. Спит' : ''}`} aria-pressed={selected} onClick={event => handlers.worker(event, item)}>
+  const counter = !mode && item.workRole === 'vendor' && stallById(state, item.stallId);
+  const atCounter = counter && distance(item, counter) < 55;
+  return <><button type="button" className={`map-item worker-item${state.favorites.includes(item.id) ? ' favorite-worker' : ''}`} style={{ ...base, '--offset': `${offset}px` }}
+    aria-label={atCounter ? 'Открыть торговую лавку' : `Осмотреть ёжика: ${item.name}${resting ? '. Спит' : ''}`}
+    aria-pressed={atCounter ? undefined : selected} onClick={event => atCounter ? handlers.market(event, { stallId: counter.id }) : handlers.worker(event, item)}>
     <HedgeSprite hedge={item} walking={Boolean(walking)} sleeping={resting}/>
     {hauling && <span className="carrying-basket"><BasketArt level={state.orchards.find(orchard => orchard.id === job.orchardId)?.basketLevel}/></span>}
-    {job?.load > 0 && <Glyph name={job.variety === 'gold' ? 'gold' : job.variety === 'berry' ? 'berry' : 'apple'} className="carrying"/>}
+    {item.industryCargo && <Glyph name={GOODS[item.industryCargo.item].icon} className="carrying"/>}
+    {item.fuelCan > 0 && <Glyph name="fuel" className="carrying"/>}
+    {job?.load > 0 && <Glyph name={['gold', 'berry', 'wheat'].includes(job.variety) ? job.variety : 'apple'} className="carrying"/>}
     {resting && <SleepLetters className="world-sleep"/>}
     {quoteIndex >= 0 && <span className={`world-speech speaker-${quoteIndex}`} role="status">{state.quote.lines[quoteIndex]}</span>}
   </button>{selected && <span className="worker-marker" style={{ ...xy(item), zIndex: WORLD.height + 5, '--offset': `${offset}px` }} aria-hidden="true"><WorkerMarker/></span>}</>;
@@ -286,10 +303,10 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const activePlots = state.orchards.map(item => plotBounds(state, item.id));
   const previousPlot = mode === 'moveFarm' || mode === 'moveGarden' ? plotBounds(state, orchardId) : null;
   const tradePlacement = mode === 'market' || placingLand;
-  const plots = ghost && (tradePlacement || building) ? constructionPlots(state) : null;
-  const site = plots && (mode === 'market' ? marketSite(state, hover, plots, movingStall)
-    : mode === 'garden' || mode === 'moveGarden' ? landSite(state, hover, plots, previousPlot) : farmSite(state, hover, plots, mode === 'moveFarm', orchardId));
-  const buildSite = ghost && eligibleBuilding && buildingSite(state, building, hover, plots);
+  const placementPlots = tradePlacement || (ghost && building) ? constructionPlots(state) : null;
+  const site = ghost && tradePlacement && (mode === 'market' ? marketSite(state, hover, placementPlots, movingStall)
+    : mode === 'garden' || mode === 'moveGarden' ? landSite(state, hover, placementPlots, previousPlot) : farmSite(state, hover, placementPlots, mode === 'moveFarm', orchardId));
+  const buildSite = ghost && eligibleBuilding && buildingSite(state, building, hover, placementPlots);
   const rating = !site ? 0 : mode === 'market' ? stallDemand(state, hover, movingStall)
     : soilRate(site, activePlots.filter(plot => plot !== previousPlot));
   const color = conditionColor(rating);
@@ -297,10 +314,9 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const previewCells = tradePlacement ? Array.from({ length: 63 }, (_, i) => {
     const point = { x: Math.floor(overlayCenter.x / 110) * 110 + (i % 9 - 4) * 110,
       y: Math.floor(overlayCenter.y / 110) * 110 + (Math.floor(i / 9) - 3) * 110 };
-    const footprint = landFootprint(point);
     const neighbors = activePlots.filter(plot => plot !== previousPlot);
-    const score = terrainKind(point) !== 'ground' ? 0 : mode === 'market' ? stallDemand(state, point, movingStall)
-      : neighbors.some(plot => plotGap(footprint, plot) < 54) ? 0 : soilRate(footprint, neighbors);
+    const available = mode === 'market' ? marketSite(state, point, placementPlots, movingStall) : landSite(state, point, placementPlots, previousPlot);
+    const score = available ? mode === 'market' ? stallDemand(state, point, movingStall) : soilRate(available, neighbors) : 0;
     return <div key={i} className="placement-cell" style={{ ...xy(point), backgroundColor: conditionColor(score) }}/>;
   }) : null;
   const placingSprinkler = mode === 'sprinkler';
@@ -316,6 +332,12 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
       <div className="map-world" style={panorama.scene}>
         <WorldBackdrop/>
         <svg className="built-roads" width={WORLD.width} height={WORLD.height} viewBox={`${WORLD.x} ${WORLD.y} ${WORLD.width} ${WORLD.height}`} aria-hidden="true">
+          <defs>
+            <pattern id="road-speckles" width="30" height="24" patternUnits="userSpaceOnUse">
+              <path d="M2 3h7v3H2zM16 17h5v3h-5zM25 8h4v4h-4z" fill="#e0c494" opacity=".48"/>
+              <path d="M9 12h8v3H9zM3 20h4v2H3zM24 1h4v2h-4z" fill="#6f5d45" opacity=".38"/>
+            </pattern>
+          </defs>
           {state.industry.roads.map(road => <g key={road.id} className={road.level === 2 ? 'paved-road' : 'new-road'}>
             <line x1={road.from.x} x2={road.to.x} y1={road.from.y} y2={road.to.y}/><line x1={road.from.x} x2={road.to.x} y1={road.from.y} y2={road.to.y}/>
           </g>)}
@@ -360,10 +382,13 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
         </div>}
       </div>
     </div>
-    <PanoramaControls panorama={panorama} label="сад" resetLabel="Вернуться к саду">
-      {orchardsById[FOREST_ORCHARD] && <button type="button" className="pixel-button square" aria-label="Показать Лесной сад" onClick={() => panorama.focus(orchardsById[FOREST_ORCHARD].basket)}><Glyph name="seed"/></button>}
-      {state.trade.wild.length > 0 && <button type="button" className="pixel-button square" aria-label="Показать дикие ягоды" onClick={() => panorama.focus(state.trade.wild.find(patch => patch.fruit) ?? state.trade.wild[0])}><Glyph name="berry"/></button>}
-      {state.industry.unlocked && <button type="button" className="pixel-button square" aria-label="Показать угольные месторождения" onClick={() => panorama.focus(COAL_SITES[1])}><Glyph name="fuel"/></button>}
+    <PanoramaControls panorama={panorama} label="сад" resetLabel="Вернуться к саду" onReset={() => {
+      const { x, y } = initialCamera(panorama.viewSize);
+      panorama.focus({ x, y });
+    }}>
+      {orchardsById[FOREST_ORCHARD] && <button type="button" className="pixel-button square map-extra" aria-label="Показать Лесной сад" onClick={() => panorama.focus(orchardsById[FOREST_ORCHARD].basket)}><Glyph name="seed"/></button>}
+      {state.trade.wild.length > 0 && <button type="button" className="pixel-button square map-extra" aria-label="Показать дикие ягоды" onClick={() => panorama.focus(state.trade.wild.find(patch => patch.fruit) ?? state.trade.wild[0])}><Glyph name="berry"/></button>}
+      {state.industry.unlocked && <button type="button" className="pixel-button square map-extra" aria-label="Показать угольные месторождения" onClick={() => panorama.focus(COAL_SITES[1])}><Glyph name="fuel"/></button>}
       <button type="button" className="pixel-button square" aria-label="Показать дом" onClick={() => panorama.focus(HOUSE)}><Glyph name="house"/></button>
     </PanoramaControls>
   </>;
@@ -413,10 +438,11 @@ function Shop({ state, dispatch, mode, setMode, orchard, clearOrchard, sprinkler
   const price = seedPrice(state);
   const farm = orchard && berryBounds(state, orchard.id);
   return <>
-    {potatoAvailable(state) && <div className="mystery-offer">
+    {!state.unlocked && <div className="mystery-offer">
       <div className="mystery-portrait"><HedgeSprite hedge={GUIDE} hidden/></div>
       <h2>???</h2>
-      <button type="button" className="pixel-button buy-button" onClick={() => dispatch('unlock')}>
+      <p>{Math.min(state.apples, BALANCE.mystery)} / {BALANCE.mystery} яблок дома</p>
+      <button type="button" className="pixel-button buy-button" disabled={!potatoAvailable(state)} onClick={() => dispatch('unlock')}>
         <span>Открыть</span><b>{icon('apple', BALANCE.mystery)}</b>
       </button>
     </div>}
@@ -459,8 +485,8 @@ function Shop({ state, dispatch, mode, setMode, orchard, clearOrchard, sprinkler
       {!orchard && state.trade.permit && <div className="shop-project">
         <div className="project-label">{icon('market','Торговые лавки')}</div>
         {state.trade.stalls.map((stall,index) => <button type="button" key={stall.id} className="pixel-button mini" onClick={() => onOpenMarket(stall)}>Лавка {index+1}</button>)}
-        <button type="button" className="pixel-button mini buy-button" disabled={state.trade.coins < stallPrice(state)} onClick={() => setMode('market')}>
-          <span>Поставить лавку</span><b>{stallPrice(state) ? icon('coin',number.format(stallPrice(state))) : 'Включена'}</b>
+        <button type="button" className="pixel-button mini buy-button" aria-pressed={mode === 'market'} disabled={state.trade.coins < stallPrice(state)} onClick={() => setMode('market')}>
+          <span>Выбрать место для лавки</span><b>{stallPrice(state) ? icon('coin',number.format(stallPrice(state))) : 'Бесплатно'}</b>
         </button>
       </div>}
       {!orchard && state.trade.permit && <div className="shop-project">
@@ -495,8 +521,10 @@ function Shop({ state, dispatch, mode, setMode, orchard, clearOrchard, sprinkler
         {state.trade.berryFarm && !state.trade.orchardPerks[orchard.id]?.mulch && <button type="button" className="pixel-button mini buy-button" disabled={state.trade.berries < 90}
           onClick={() => dispatch('buyOrchardTrade',{orchardId:orchard.id,key:'mulch'})}><span>Ягодная мульча</span><b>{icon('berry',90)}</b></button>}
       </div>}
-      {orchard && <div className="shop-project">
+      {farm && <p className="shop-hint">Ферму пока поливают лейкой. Разбрызгиватели для посевов появятся с исследованиями.</p>}
+      {orchard && !farm && <div className="shop-project">
         <div className="project-label"><Glyph name="water"/><b>Разбрызгиватели</b><small>{orchard.sprinklers.length}/{SPRINKLER_LIMIT}</small></div>
+        <p>Яблони в круге созревают на 9% быстрее за уровень. Круг показан при выборе места.</p>
         <button type="button" className="pixel-button mini buy-button" disabled={orchard.sprinklers.length >= SPRINKLER_LIMIT || state.apples < sprinklerPrice(orchard)}
           aria-pressed={mode === 'sprinkler' && sprinklerId === null} onClick={onNewSprinkler}>
           <span>{orchard.sprinklers.length >= SPRINKLER_LIMIT ? 'Все места заняты' : 'Поставить новый'}</span>
@@ -538,6 +566,14 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
   const places = workplaces(state);
   const [editor, setEditor] = useState(null);
   const editorButton = useRef(null);
+  const [selected, setSelected] = useState([]);
+  const [crewName, setCrewName] = useState('');
+  const [destination, setDestination] = useState(null);
+  const [crewRole, setCrewRole] = useState(null);
+  const target = places.find(place => place.id === destination) ?? places[0];
+  const role = target.roles.includes(crewRole) ? crewRole : target.roles[0];
+  const recruit = state.recruitOffer;
+  const perk = PERKS[recruit?.perk];
 
   function toggleEditor(event, id, kind) {
     editorButton.current = event.currentTarget;
@@ -557,6 +593,22 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
           onClick={() => dispatch('favorite', { id: worker.id })}>{worker ? <HedgeSprite hedge={worker}/> : <Glyph name="plus"/>}</button>;
       })}
     </div>
+    <details className="crew-manager">
+      <summary>Команды</summary>
+      <div className="worker-options">
+        <div className="crew-selection">{state.workers.map(worker => <label key={worker.id}>
+          <input type="checkbox" checked={selected.includes(worker.id)}
+            onChange={() => setSelected(current => current.includes(worker.id) ? current.filter(id => id !== worker.id) : [...current, worker.id])}/>
+          {worker.name}
+        </label>)}</div>
+        <GameSelect label="Куда направить" value={target.id} options={places.map(place => ({ value: place.id, label: place.label }))} onChange={setDestination}/>
+        <GameSelect label="Работа команды" value={role} options={target.roles.map(value => ({ value, label: workRoleLabel(target.id, value) }))} onChange={setCrewRole}/>
+        <button type="button" className="pixel-button mini" disabled={!selected.length} onClick={() => dispatch('assignCrew', { ids: selected, place: target.id, role })}>Назначить выбранных</button>
+        <label>Имя команды <input value={crewName} maxLength={24} onChange={e => setCrewName(e.target.value)}/></label>
+        <button type="button" className="pixel-button mini" disabled={!selected.length || !crewName.trim()} onClick={() => dispatch('saveCrew', { name: crewName, ids: selected })}>Сохранить места и работу</button>
+        {state.crews?.map(crew => <button key={crew.name} type="button" className="pixel-button mini" onClick={() => dispatch('assignCrew', { name: crew.name })}>Вернуть: {crew.name}</button>)}
+      </div>
+    </details>
     {state.workers.map(worker => {
       const favorite = state.favorites.includes(worker.id);
       const kind = editor?.id === worker.id ? editor.kind : null;
@@ -570,13 +622,13 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         onKeyDown={event => { if (event.key === 'Escape' && kind) { event.stopPropagation(); closeEditor(); } }}>
         <div className="worker-row">
           <button type="button" className="worker-profile" onClick={() => onInspect(worker)}><HedgeSprite hedge={worker}/><span>{worker.name}<small>{destination}</small></span></button>
-          <Tooltip label={jobTooltip}><button type="button" className="pixel-button mini square" aria-label={`${worker.name}. ${jobTooltip}`}
+          <Tooltip label={jobTooltip}><button type="button" className="pixel-button mini worker-quick-action" aria-label={`${worker.name}. ${jobTooltip}`}
             aria-expanded={kind === 'role'} aria-controls={kind === 'role' ? optionsId : undefined}
-            onClick={event => toggleEditor(event, worker.id, 'role')}><Glyph name={WORK_ROLE_ICONS[worker.workRole]}/></button></Tooltip>
-          <Tooltip label={placeTooltip}><button type="button" className={`pixel-button mini square${assigningId === worker.id ? ' worker-assigning' : ''}`}
+            onClick={event => toggleEditor(event, worker.id, 'role')}>Работа</button></Tooltip>
+          <Tooltip label={placeTooltip}><button type="button" className={`pixel-button mini worker-quick-action${assigningId === worker.id ? ' worker-assigning' : ''}`}
             aria-label={`${worker.name}. ${placeTooltip}`}
             aria-expanded={kind === 'place'} aria-controls={kind === 'place' ? optionsId : undefined}
-            onClick={event => toggleEditor(event, worker.id, 'place')}><Glyph name="pin"/></button></Tooltip>
+            onClick={event => toggleEditor(event, worker.id, 'place')}>Место</button></Tooltip>
           <Tooltip label={favoriteLabel}><button type="button" className="pixel-button mini square" aria-label={`${worker.name}. ${favoriteLabel}`}
             aria-pressed={favorite} disabled={!favorite && state.favorites.length >= capacity} onClick={() => dispatch('favorite', { id: worker.id })}>{icon(favorite ? 'check' : 'plus')}</button></Tooltip>
         </div>
@@ -596,8 +648,16 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
         </div>}
       </div>;
     })}
-    <button type="button" className="pixel-button buy-button hire-button" disabled={state.workers.length >= housingCapacity(state) || state.apples < hirePrice(state)} onClick={() => dispatch('recruit', { orchardId })}>
-      <span>Нанять ёжика · {state.workers.length}/{housingCapacity(state)}</span><b>{icon('apple', number.format(hirePrice(state)))}</b>
+    {recruit && <section className="recruit-offer" aria-label="Кандидат">
+      <HedgeSprite hedge={recruit}/><strong>{recruit.name}</strong>
+      <div className="recruit-stats">{Object.entries(recruit.stats).map(([key, value]) =>
+        <span key={key} aria-label={`${({speed:'Скорость', strength:'Сила', endurance:'Выносливость', dexterity:'Ловкость', handling:'Сноровка', foraging:'Поиск'})[key]}: ${value}`}><ProfileGlyph name={key}/>{value}</span>)}</div>
+      <p>{perk ? `${PERK_TIERS.find(tier => tier.id === perk.tier).label}: ${perk.name}. ${perk.desc}` : 'Без особого навыка'}</p>
+      <p>Подходит для: {recruit.stats.foraging >= 8 ? 'поиска в лесу' : recruit.stats.speed + recruit.stats.strength >= 14 ? 'перевозок' : 'сбора урожая'}.</p>
+    </section>}
+    <button type="button" className="pixel-button buy-button hire-button" disabled={Boolean(recruit) && (state.workers.length >= housingCapacity(state) || state.apples < hirePrice(state))}
+      onClick={() => dispatch(recruit ? 'recruit' : 'previewRecruit', { orchardId })}>
+      <span>{recruit ? 'Нанять' : 'Посмотреть кандидата'} · {state.workers.length}/{housingCapacity(state)}</span><b>{icon('apple', number.format(hirePrice(state)))}</b>
     </button>
   </>;
 }
@@ -860,11 +920,12 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   }
 
   function basketAction(item) {
-    if (!state.unlocked && mode !== 'basket') {
+    if (!mode) {
       setError(null);
       dispatch('sendBasket', { orchardId: item.id });
       return;
     }
+    if (mode !== 'basket') return;
     selectOrchard(item.id);
     changeMode(mode === 'basket' && orchard.id === item.id ? null : 'basket');
   }
@@ -899,7 +960,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
   else if (!state.unlocked) {
     if (state.jobs.some(job => job.kind === 'manual')) tutorial = 'Корзина в пути к дому';
     else if (starter.ready.length) tutorial = 'Нажми на полную корзину, чтобы отправить её к дому';
-    else tutorial = `Собери яблоки в корзину — ${fruitCount(starter.fill)}/${basketLimit(starter)}`;
+    else tutorial = `Собери яблоки в корзину — ${fruitCount(starter.fill)}/${basketLimit(starter)} · ??? ${state.apples}/${BALANCE.mystery} дома`;
   }
   return <TooltipProvider><main className="game-shell" onKeyDown={event => { if (event.key === 'Escape' && mode) changeMode(null); }}>
     <OrchardMap state={state} mode={mode} orchardId={selected?.id ?? (mode === 'basket' ? START_ORCHARD : null)} sprinklerId={sprinklerId}
@@ -980,6 +1041,10 @@ export function GameView({ state, dispatch, audio, onImport, onMenu }) {
     {treeOpen && <UpgradeTree state={state} dispatch={dispatch} onClose={closeTree}/>}
     {saveOpen && <SaveTransfer state={state} onClose={() => setSaveOpen(false)} onImport={onImport}/>}
     {market && <MarketScreen key={market.id} state={state} stall={market} dispatch={dispatch} onClose={() => setMarketId(null)}
+      onFindBerries={() => {
+        const patch = state.trade.wild.find(item => item.fruit) ?? state.trade.wild[0];
+        if (patch) { setMarketId(null); setFocusPoint({ x: patch.x, y: patch.y }); }
+      }}
       onMove={() => { setMovingStall(market.id); setMarketId(null); changeMode('market'); }}
       guide={activeGuide} onDismissGuide={dismissGuide}/>}
   </main></TooltipProvider>;

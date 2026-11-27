@@ -320,6 +320,9 @@ test('customers enter from path endpoints and each accepted order pays once', ()
   state = fulfill(state);
   assert.equal(state.trade.coins,90);
   assert.equal(state.trade.sales,1);
+  assert.deepEqual(state.trade.stalls[0].recentSales, [
+    { id: customer.id, guest: 'bobby', items: [{ key: 'apples', quantity: 200 }], earned: 90 },
+  ]);
   assert.equal(act(state,'fillOrder',action),state);
   assert.ok(state.trade.stalls[0].customers.filter(item => item.phase !== 'leave').length <= queueCapacity(stall));
   assert.deepEqual(importGame(JSON.stringify(state)),state);

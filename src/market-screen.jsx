@@ -23,7 +23,7 @@ function deliveryStatus(state, stall, key, couriers, canDispatch) {
   return `Товар ждёт доставки · ${name.toLowerCase()}.`;
 }
 
-export function MarketScreen({ state, stall, dispatch, onClose, onMove, guide, onDismissGuide }) {
+export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBerries, guide, onDismissGuide }) {
   const dialog = useRef(null);
   const [remove, setRemove] = useState(false);
   const [gallery, showGallery] = useState(false);
@@ -58,10 +58,6 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, guide, o
       </div>
     </header>
     {gallery ? <CustomerGallery seen={state.trade.visitorsSeen}/> : <div className="market-content">
-      {guide && ['firstSale','wildBerries'].includes(guide.key) && <div className="market-guide pixel-window">
-        <HedgeSprite hedge={GUIDE} speaking/><p><strong>Картошка</strong>{guide.text}</p>
-        <button type="button" className="pixel-button mini" onClick={onDismissGuide}>Понятно</button>
-      </div>}
       <div className="market-left">
         <section className="market-scene" aria-label="Прилавок">
           <MarketLandscape/>
@@ -97,10 +93,24 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, guide, o
             {deliveryMessages.length > 0 && <div role="status">
               {deliveryMessages.map(message => <p className="market-help" key={message}>{message}</p>)}
             </div>}
+            {order.accepted && order.berries > (stall.stock.berries ?? 0) && state.trade.wild.length > 0 &&
+              <button type="button" className="pixel-button mini" onClick={onFindBerries}><Glyph name="berry"/> Показать дикие ягоды</button>}
           </> : <p className="market-help">Снабженцы возят запасы из дома. Свободные ёжики помогают после приёма заказа.</p>}
         </section>
       </div>
       <div className="market-sidebar">
+        {guide && ['firstSale','wildBerries'].includes(guide.key) && <div className="market-guide pixel-window">
+          <HedgeSprite hedge={GUIDE} speaking/><p><strong>Картошка</strong>{guide.text}</p>
+          <button type="button" className="pixel-button mini" onClick={onDismissGuide}>Понятно</button>
+        </div>}
+        {stall.recentSales?.length > 0 && <details className="market-box pixel-window market-sales">
+          <summary>Последние продажи</summary>
+          <ul>{stall.recentSales.map(sale => <li key={sale.id}>
+            <strong>{CUSTOMERS[sale.guest]?.name ?? 'Покупатель'}</strong>
+            <span>{sale.items.map(({ key, quantity }) => `${GOODS[key].label} ×${quantity}`).join(', ')}</span>
+            <span><Glyph name="coin"/> +{number.format(sale.earned)}</span>
+          </li>)}</ul>
+        </details>}
         <section className="market-box pixel-window" aria-label="Запасы лавки">
           <h3>Запасы <small>{marketStock(stall)}/{stallCapacity(stall)}</small></h3>
           <div className="market-inventory">
@@ -113,6 +123,9 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, guide, o
           {marketStock(stall) > 0 && <div className="market-stock-actions">
             <button type="button" className="pixel-button mini" onClick={() => act('returnStock')}>Вернуть запас домой</button>
           </div>}
+          <GameSelect label="Приоритет доставки" value={state.industry.priority[`stall:${stall.id}`] ?? 1}
+            options={[{ value: 1, label: 'Обычный' }, { value: 2, label: 'Высокий' }, { value: 3, label: 'Срочный' }]}
+            onChange={priority => dispatch('setFreight', { id: `stall:${stall.id}`, priority })}/>
           <div className="market-reserve"><GameSelect label="Оставлять яблок дома" value={stall.reserve}
             options={[...new Set([0, 100, 250, 500, 1000, 2500, 5000, stall.reserve])].sort((a, b) => a - b).map(amount => ({ value: amount, label: number.format(amount) }))}
             onChange={amount => act('setReserve', { amount })}/></div>

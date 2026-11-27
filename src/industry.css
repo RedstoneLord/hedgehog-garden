@@ -105,3 +105,15 @@
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.built-roads .road-grain { stroke: url(#road-speckles); stroke-width: 28; stroke-dasharray: none; }
+.mine-scene, .workshop-scene { position: relative; width: 100%; }
+.mine-scene > svg, .workshop-scene > svg { width: 100%; }
+.mine-scene .mining-hedge, .workshop-scene .making-hedge { position: absolute; left: 36%; width: 32%; bottom: 2%; animation: station-work .48s steps(2,end) infinite alternate; }
+.workshop-scene.making > svg:first-child { animation: station-work .48s steps(2,end) infinite alternate; }
+.coal-debris { position: absolute; bottom: 17%; left: 55%; }
+.coal-debris i { position: absolute; width: 5px; height: 5px; background: #34303b; animation: coal-spark .8s steps(5,end) infinite; }
+.coal-debris i:nth-child(2) { animation-delay: -.22s; margin-left: 8px; }
+.coal-debris i:nth-child(3) { animation-delay: -.45s; margin-left: -9px; }
+@keyframes station-work { to { transform: translateY(-2px); } }
+@keyframes coal-spark { to { transform: translate(17px, -22px); opacity: .15; } }

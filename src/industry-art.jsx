@@ -33,11 +33,15 @@ export function WheatArt({ ripe, dry }) {
   </svg>;
 }
 
-export function IndustryArt({ site, driver }) {
+export function IndustryArt({ site, driver, operator }) {
   if (site.kind === 'house') return <HouseArt/>;
-  if (site.kind === 'mine') return <MountainArt mine/>;
-  if (site.kind === 'tractor') return <div className={`tractor-art${site.trip ? ' driving' : ''}${site.left ? ' mirror' : ''}`}>
-    {driver && <div className="tractor-driver"><HedgeSprite hedge={{ ...driver, left: false }}/></div>}
+  if (site.kind === 'mine') return <div className={`mine-scene${site.mineAt ? ' mining' : ''}`}>
+    <MountainArt mine/>
+    {site.mineAt && operator && <HedgeSprite hedge={operator} className="mining-hedge"/>}
+    {site.mineAt && <span className="coal-debris" aria-hidden="true"><i/><i/><i/></span>}
+  </div>;
+  if (site.kind === 'tractor') return <div className={`tractor-art${site.trip ? ' driving' : ''}${site.left === false ? ' mirror' : ''}`}>
+    {driver && <div className="tractor-driver"><HedgeSprite hedge={{ ...driver, left: true }}/></div>}
     <svg viewBox="0 0 49 34" shapeRendering="crispEdges" aria-hidden="true">
       <path fill="#302835" d="M2 29h42v4H2zM7 20h38v6H7zM8 4h4v14H8zm25 0h3v17h-3z"/>
       <path fill="#9f3938" d="M4 19h3v-6h5v-3h13v3h5v9h11v-8h5v12H4z"/>
@@ -53,7 +57,8 @@ export function IndustryArt({ site, driver }) {
       </g>)}
     </svg>
   </div>;
-  return <svg viewBox="0 0 68 53" shapeRendering="crispEdges" aria-hidden="true" className={site.batch ? 'working-shop' : ''}>
+  return <div className={`workshop-scene${site.batch ? ' making' : ''}`}>
+  <svg viewBox="0 0 68 53" shapeRendering="crispEdges" aria-hidden="true" className={site.batch ? 'working-shop' : ''}>
     <path fill="#354338" opacity=".35" d="M4 45h56v3h6v5H0v-4h4z"/>
     <path fill="#584142" d="M4 48V22h7v-7h9V9h9V6h22v6h9v7h5v29z"/>
     <path fill={site.level === 3 ? '#82837a' : '#c59964'} d="M10 24h48v23H10z"/>
@@ -67,5 +72,7 @@ export function IndustryArt({ site, driver }) {
     <path fill="#694843" d={site.level === 3 ? 'M45 2h10v18H45zM56 4h8v17h-8z' : 'M47 5h6v13h-6z'}/>
     <path className="workshop-smoke" fill="#d5c0ad" d="M47 1h5v2h-5zM52 0h7v2h-7z" />
     {site.level >= 2 && <path fill="#eab074" d="M11 26h7v2h-7zM54 26h6v2h-6z"/>}
-  </svg>;
+  </svg>
+    {site.batch && operator && <HedgeSprite hedge={operator} className="making-hedge"/>}
+  </div>;
 }

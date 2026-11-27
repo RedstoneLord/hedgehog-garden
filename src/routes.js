@@ -1,4 +1,4 @@
-import { PIXEL, terrainKind, TRADE_ROADS, WORLD } from './terrain.js';
+import { fenceSegments, PIXEL, terrainKind, TRADE_ROADS, WORLD } from './terrain.js';
 
 const CELL = 24;
 const columns = WORLD.width / CELL;
@@ -316,4 +316,172 @@ export function followRoute(actor, route, speed, seconds, roads = []) {
 export function routeTo(actor, target, planned, roads = []) {
   planned ??= findRoute(actor, target, roads);
   return planned ? { points: planned.points.map(({ x, y }) => ({ x, y })), index: 0, x: target.x, y: target.y } : null;
+}
+
+const MAX_DRIVEWAY = 230;
+let freightNetwork;
+
+function freightGraph(roads) {
+  const signature = roads.map(({ from, to, level }) => `${pointKey(from)}:${pointKey(to)}:${level}`).join(';');
+  if (freightNetwork?.signature === signature) return freightNetwork;
+  const segments = TRADE_ROADS.flatMap(road => road.slice(1).map((to, index) => {
+    const from = road[index];
+    return { from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, level: 1 };
+  })).concat(roads);
+  const vertices = new Map();
+  const node = point => {
+    const key = `${Math.round(point.x * 100)},${Math.round(point.y * 100)}`;
+    if (!vertices.has(key)) vertices.set(key, { ...point, legs: [] });
+    return vertices.get(key);
+  };
+  const split = segments.map(segment => ({ ...segment, stops: [node(segment.from), node(segment.to)] }));
+  const cross = (a, b) => a.x * b.y - a.y * b.x;
+  const delta = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+  for (const [i, a] of split.entries()) {
+    const ad = delta(a.to, a.from);
+    for (const b of split.slice(i + 1)) {
+      const bd = delta(b.to, b.from);
+      const denominator = cross(ad, bd);
+      if (Math.abs(denominator) > .0001) {
+        const gap = delta(b.from, a.from);
+        const t = cross(gap, bd) / denominator;
+        const u = cross(gap, ad) / denominator;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+          const join = node({ x: a.from.x + t * ad.x, y: a.from.y + t * ad.y });
+          a.stops.push(join);
+          b.stops.push(join);
+        }
+      }
+      for (const [source, target] of [[a,b],[b,a]]) for (const end of [source.from, source.to]) {
+        const contact = projectRoad(end, target);
+        if (distance(end, contact) > 18 || !canWalkStraight(end, contact)) continue;
+        const from = node(end), to = node(contact);
+        target.stops.push(to);
+        if (from === to) continue;
+        const cost = distance(from, to);
+        from.legs.push({ to, cost });
+        to.legs.push({ to: from, cost });
+      }
+    }
+  }
+  for (const segment of split) {
+    segment.speed = segment.level === 2 ? 1.85 : roadSpeed;
+    segment.stops = [...new Set(segment.stops)].sort((a, b) => distance(segment.from, a) - distance(segment.from, b));
+    for (let i = 1; i < segment.stops.length; i++) {
+      const from = segment.stops[i - 1], to = segment.stops[i];
+      const cost = distance(from, to) / segment.speed;
+      from.legs.push({ to, cost });
+      to.legs.push({ to: from, cost });
+    }
+  }
+  freightNetwork = { signature, segments: split, routes: new Map() };
+  return freightNetwork;
+}
+
+export function findFreightRoute(from, to, roads = []) {
+  if (distance(from, to) <= 40 && canWalkStraight(from, to)) return { cost: distance(from,to), points: [to] };
+  const network = freightGraph(roads);
+  const key = `${pointKey(from)}:${pointKey(to)}`;
+  if (network.routes.has(key)) return network.routes.get(key);
+  const access = point => network.segments.flatMap(segment => {
+    const approach = projectRoad(point, segment);
+    const gap = distance(approach, point);
+    if (gap > MAX_DRIVEWAY || !canWalkStraight(point, approach)) return [];
+    const index = segment.stops.findIndex(stop => distance(segment.from, stop) >= distance(segment.from, approach));
+    const stops = index <= 0 ? [segment.stops[index === 0 ? 0 : segment.stops.length - 1]] : segment.stops.slice(index - 1, index + 1);
+    return [{ segment, approach, gap, stops }];
+  }).sort((a,b) => a.gap - b.gap).slice(0, 5);
+  const entries = access(from), exits = access(to);
+  const queue = [], parents = new Map(), starts = new Map(), targets = new Map(), scores = new Map();
+  let result = null;
+  for (const e of entries) for (const x of exits) {
+    if (e.segment !== x.segment) continue;
+    const cost = e.gap + x.gap + distance(e.approach,x.approach) / e.segment.speed;
+    if (!result || cost < result.cost) result = { cost, points: [e.approach, x.approach, to] };
+  }
+  for (const exit of exits) for (const stop of exit.stops) {
+    const cost = exit.gap + distance(stop,exit.approach) / exit.segment.speed;
+    if (!targets.has(stop) || cost < targets.get(stop).cost) targets.set(stop, { cost, approach: exit.approach });
+  }
+  for (const entry of entries) for (const stop of entry.stops) {
+    const cost = entry.gap + distance(stop,entry.approach) / entry.segment.speed;
+    if (cost >= (scores.get(stop) ?? Infinity)) continue;
+    starts.set(stop, entry.approach);
+    scores.set(stop, cost);
+    push(queue, { id: stop, priority: cost, cost });
+  }
+  while (queue.length) {
+    const { id, cost } = pop(queue);
+    if (cost !== scores.get(id)) continue;
+    if (result && cost >= result.cost) break;
+    const target = targets.get(id);
+    if (target && (!result || cost + target.cost < result.cost)) {
+      const points = [to, target.approach, id];
+      let first = id;
+      while (parents.has(first)) { first = parents.get(first); points.push(first); }
+      points.push(starts.get(first));
+      result = { cost: cost + target.cost, points: points.reverse() };
+    }
+    for (const leg of id.legs) {
+      const next = cost + leg.cost;
+      if (next >= (scores.get(leg.to) ?? Infinity)) continue;
+      scores.set(leg.to, next);
+      parents.set(leg.to, id);
+      push(queue, { id: leg.to, priority: next, cost: next });
+    }
+  }
+  if (result) result.points = result.points.map(({ x, y }) => ({ x, y }));
+  return remember(network.routes, key, result);
+}
+
+const fenceCache = new Map();
+
+export function findGardenRoute(from, to, roads, plots) {
+  const regular = findRoute(from, to, roads);
+  if (!regular || !plots.length) return regular;
+  const fences = plots.map(plot => {
+    const { x, y, width, height } = plot;
+    const key = `${x},${y},${width},${height}`;
+    return fenceCache.get(key) ?? remember(fenceCache, key, fenceSegments(plot));
+  });
+  const clear = (a,b) => fences.every(segments => segments.every(([p,q]) => {
+    const vertical = p.x === q.x;
+    const start = vertical ? a.x : a.y, end = vertical ? b.x : b.y;
+    const boundary = vertical ? p.x : p.y;
+    if (start === end || (start - boundary) * (end - boundary) > 0) return true;
+    const mix = (boundary - start) / (end - start);
+    const at = vertical ? a.y + mix * (b.y - a.y) : a.x + mix * (b.x - a.x);
+    return at < (vertical ? p.y : p.x) || at > (vertical ? q.y : q.x);
+  }));
+  if (regular.points.every((point, i) => clear(i ? regular.points[i-1] : from,point))) return regular;
+  const bounds = [from, ...regular.points];
+  const minX = Math.min(...bounds.map(p=>p.x)), maxX = Math.max(...bounds.map(p=>p.x));
+  const minY = Math.min(...bounds.map(p=>p.y)), maxY = Math.max(...bounds.map(p=>p.y));
+  const relevant = plots.filter(({ x,y,width,height }) => x < maxX+120 && x+width > minX-120 && y < maxY+120 && y+height > minY-120);
+  const nodes = [from, to, ...regular.points.slice(0,-1), ...relevant.flatMap(({ x, y, width:w, height:h }) => [
+    { x:x-16, y:y-16 }, { x:x+w+16, y:y-16 }, { x:x-16, y:y+h+16 }, { x:x+w+16, y:y+h+16 },
+    { x:x+w/2, y }, { x:x+w/2, y:y+h }, { x, y:y+h/2 }, { x:x+w, y:y+h/2 },
+  ])];
+  const scores = Array(nodes.length).fill(Infinity), parents = [], queue = [];
+  scores[0]=0;
+  push(queue, { id:0, priority:0 });
+  while (queue.length) {
+    const { id, priority } = pop(queue);
+    if (priority !== scores[id]) continue;
+    if (id === 1) {
+      const points = [to];
+      for (let previous=parents[id]; previous; previous=parents[previous]) points.push(nodes[previous]);
+      return { points:points.reverse(), cost:priority };
+    }
+    for (let next=1; next<nodes.length; next++) {
+      if (next === id || scores[id] + distance(nodes[id],nodes[next]) / 1.85 >= scores[next]
+        || !clear(nodes[id],nodes[next])) continue;
+      const cost = scores[id] + lineCost(nodes[id],nodes[next]);
+      if (cost >= scores[next]) continue;
+      scores[next]=cost;
+      parents[next]=id;
+      push(queue, { id:next, priority:cost });
+    }
+  }
+  return null;
 }

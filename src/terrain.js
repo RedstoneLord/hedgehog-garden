@@ -396,3 +396,23 @@ export function createTerrainPixels(waterFrame = 0, windFrame = 0) {
   for (const { x, y, art, palette, sway } of props) putSprite(x, y, art, palette, sway);
   return pixels;
 }
+
+// Keep the four entrances in the same place for rendering and pathfinding.
+export function fenceSegments({ x, y, width, height }) {
+  const segments = [];
+  function side(length, at) {
+    for (let start = 0; start < length; start += 24) {
+      const end = Math.min(start + 24, length);
+      if (start < length / 2 + 43 && end > length / 2 - 43) continue;
+      const a = at(start), b = at(end);
+      if ([a, b, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }].every(point => terrainKind(point) === 'ground')) {
+        segments.push([a,b]);
+      }
+    }
+  }
+  side(width, i => ({ x: x+i, y }));
+  side(width, i => ({ x: x+i, y: y+height }));
+  side(height, i => ({ x, y: y+i }));
+  side(height, i => ({ x:x+width, y: y+i }));
+  return segments;
+}

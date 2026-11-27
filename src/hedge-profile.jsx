@@ -1,3 +1,4 @@
+import { PERK_TIERS } from './perks.js';
 import { GameSelect } from './game-select.jsx';
 import { industrySite } from './industry.js';
 import { IndustryArt } from './industry-art.jsx';
@@ -143,8 +144,8 @@ export function HedgeProfile({ state, worker, dispatch, onLocate, onAssign }) {
       </Tooltip>)}
     </div>
     {perk && <section className="profile-perk" aria-label="Перк">
-      <div className="perk-icon" data-perk={worker.perk}><ProfileGlyph name={worker.perk}/></div>
-      <div><h3>{perk.name}</h3><p>{perk.desc}</p></div>
+      <div className="perk-icon" data-perk={worker.perk}><Glyph name={perk.icon}/></div>
+      <div><h3>{perk.name}</h3><p>{PERK_TIERS.find(tier => tier.id === perk.tier)?.label} · {perk.desc}</p></div>
     </section>}
     <WorkAssignment state={state} worker={worker} dispatch={dispatch} onAssign={onAssign}/>
   </article>;

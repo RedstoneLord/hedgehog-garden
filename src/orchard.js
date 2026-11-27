@@ -57,8 +57,8 @@ export const STAT_INFO = {
   handling: { label: 'Сноровка', icon: 'handling', desc: 'Скорость погрузки и разгрузки корзины.' },
   foraging: { label: 'Поиск', icon: 'foraging', desc: 'Дальность обнаружения цветов и шанс найти редкий саженец в корзине.' },
 };
-export const WORK_ROLES = { auto: 'Сбор и доставка', collect: 'Собирать яблоки', haul: 'Возить корзины', scout: 'Искать цветы', restock: 'Снабжать лавку', vendor: 'Продавать', forage: 'Искать дикие ягоды', water: 'Поливать посевы', maker: 'Готовить продукты', buyer: 'Покупать банки', miner: 'Добывать уголь', driver: 'Водить трактор' };
-export const WORK_ROLE_ICONS = { auto: 'work', collect: 'apple', haul: 'basket', scout: 'flower', restock: 'fastBasket', vendor: 'coin', forage: 'berry', water: 'water', maker: 'table', buyer: 'jar', miner: 'fuel', driver: 'fastBasket' };
+export const WORK_ROLES = { auto: 'Сбор и доставка', collect: 'Собирать яблоки', haul: 'Возить корзины', scout: 'Искать цветы', restock: 'Снабжать лавку', vendor: 'Продавать', forage: 'Искать дикие ягоды', water: 'Поливать посевы', maker: 'Готовить продукты', buyer: 'Покупать банки', miner: 'Добывать уголь', porter: 'Возить грузы со станции', driver: 'Водить трактор' };
+export const WORK_ROLE_ICONS = { auto: 'work', collect: 'apple', haul: 'basket', scout: 'flower', restock: 'fastBasket', vendor: 'coin', forage: 'berry', water: 'water', maker: 'table', buyer: 'jar', miner: 'fuel', porter: 'crate', driver: 'fastBasket' };
 export const DEFAULT_STATS = Object.fromEntries(Object.keys(STAT_INFO).map(id => [id, 5]));
 
 export const emptyCargo = () => ({ red: 0, gold: 0 });

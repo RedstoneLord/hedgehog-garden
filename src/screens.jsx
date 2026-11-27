@@ -45,9 +45,15 @@ const graph = {
   packingLine: { x: 1284, y: 113, branch: 'work' },
   coalKiln: { x: 1235, y: 256, branch: 'work' },
   roadFreight: { x: 1230, y: 407, branch: 'work' },
+  heritageOrchard: { x: 365, y: 158, branch: 'garden' },
+  firstFarm: { x: 764, y: 24, branch: 'garden' },
+  freightHub: { x: 1375, y: 447, branch: 'work' },
+  trustedStall: { x: 1060, y: 492, branch: 'work' },
+  orchardTeams: { x: 898, y: 677, branch: 'group' },
+  furnaceCrew: { x: 1380, y: 161, branch: 'work' },
   forestPockets: { x: 236, y: 606, branch: 'flower' },
 };
-const graphWidth = 1360;
+const graphWidth = 1460;
 const graphHeight = 740;
 const graphBounds = { width: graphWidth + 260, height: graphHeight + 250 };
 const branches = { garden: 'Сад', work: 'Работа', group: 'Кучка', flower: 'Цветы' };
@@ -147,7 +153,7 @@ export function UpgradeTree({ state, dispatch, onClose }) {
     <header className="screen-header">
       <h2 id="upgrades-title"><Glyph name="tree"/>Дерево улучшений</h2>
       <Tooltip label="До следующего уровня" detail={`${state.xpProgress} из ${goal} опыта`} tap><div className="tree-budget" tabIndex={0}>
-        <Glyph name="xp"/>{number.format(state.xp)} ОП<span>Ур. {number.format(state.level)}</span><small>{number.format(state.xpProgress)}/{number.format(goal)}</small>
+        <Glyph name="xp"/>{number.format(state.xp)} ОП<span>Ур. {number.format(state.level)}</span><small>Опыт {number.format(state.xpProgress)}/{number.format(goal)}</small>
         <div role="progressbar" className="xp-progress" aria-label="Опыт до следующего уровня" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={state.xpProgress}>
           <i style={{ width: `${100 * state.xpProgress / goal}%` }}/>
         </div>

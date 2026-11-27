@@ -1,5 +1,7 @@
+import { perkEffect, rollPerk } from './perks.js';
+export { PERKS } from './perks.js';
 import { FOREST_CLEARING, OLD_MAP_OFFSET, terrainKind, WORLD } from './terrain.js';
-import { canWalkStraight, distance, findRoute, followRoute, routeTo } from './routes.js';
+import { canWalkStraight, distance, findGardenRoute, findRoute, followRoute, routeTo } from './routes.js';
 import {
   basketLimit, berryBounds, BERRY_ORCHARD, DEFAULT_STATS, EAST_BASKET, EAST_ORCHARD, EAST_PLOT, FOREST_BASKET, FOREST_ORCHARD, fruitValue, GARDEN_RATES, HOUSE, makeOrchard,
   isBerryOrchard, isFieldCrop, isPurchasedGarden, orchardById, orchardName, preserveCarriedFruit, SHOP, shopLevel, shopPrice, spaceForFruit, SPRINKLER_LIMIT, SPRINKLER_RADIUS, sprinklerPrice,
@@ -8,7 +10,7 @@ import {
 
 import { advanceCustomers, canServe, frontCustomer, globalUpgradeBonus, migrateMarketProgress, migrateTradeSites, moveTradeJob, newTrade, PERMIT_PRICE, scheduleCommission, scheduleTrade, startCropGrowth, TRADE_ROLES, tradeActions } from './trade.js';
 
-import { adjustStock, advanceIndustry, housingCapacity, INDUSTRY_ROLES, industryActions, industrySite, industryWorkplaces, nearestHome, newIndustry, validIndustry } from './industry.js';
+import { adjustStock, advanceIndustry, GOODS, housingCapacity, INDUSTRY_ROLES, industryActions, industrySite, industryWorkplaces, migrateLogistics, nearestHome, newIndustry, validIndustry } from './industry.js';
 import { soilRate } from './siting.js';
 
 export { WORLD };
@@ -26,7 +28,7 @@ export const SAVE_KEY = 'itmo-apple-orchard-v4';
 const MAP_VERSION = 3;
 const PREVIOUS_FOREST_CLEARING = { x:4860, y:870, width:774, height:520 };
 export const BALANCE = {
-  mystery: 100, seed: 5, seedGrowth: 1.36, firstHire: 150, hireGrowth: 1.25, firstLevelXp: 16, levelXpGrowth: 1.8, perkChance: .06,
+  mystery: 100, seed: 5, seedGrowth: 1.36, firstHire: 150, hireGrowth: 1.16, firstLevelXp: 16, levelXpGrowth: 1.8, perkChance: .06,
   crop: VARIETIES.red.yield, regrowth: VARIETIES.red.regrowth,
   stride: 106, favoriteBoost: 1.18, flowerBoost: 1.55, flowerDuration: 16000,
   talkCooldown: 33000, coOpDistance: 278, flowerCooldown: 90000, flowerJitter: 60000, productionWindow: 20000,
@@ -57,7 +59,7 @@ const originalUpgrades = {
   farmWater: { name: 'Капельный полив', desc: 'Политые культуры созревают на 20% быстрее.', cost: 58, icon: 'water', requires: 'berryBaskets', gate: 'berries' },
   batchCraft: { name: 'Удобные формы', desc: 'Все рецепты готовятся на 25% быстрее.', cost: 65, icon: 'table', requires: 'quickPacking', gate: 'production' },
   largerBatches: { name: 'Полный противень', desc: 'Каждая партия даёт одну дополнительную порцию.', cost: 95, icon: 'pie', requires: 'batchCraft', gate: 'production' },
-  efficientFuel: { name: 'Угольные брикеты', desc: 'Шахта производит на единицу топлива больше за цикл.', cost: 72, icon: 'fuel', requires: 'pantry', gate: 'production' },
+  efficientFuel: { name: 'Угольные брикеты', desc: 'Рецепт топлива даёт ещё одну единицу за партию.', cost: 72, icon: 'fuel', requires: 'pantry', gate: 'production' },
   tractorGears: { name: 'Тяговая передача', desc: 'Тракторы ездят на 24% быстрее.', cost: 108, icon: 'fastBasket', requires: 'efficientFuel', gate: 'production' },
   shiftPlanning: { name: 'Тёплый очаг', desc: 'Восстановление сил всех ёжиков занимает на 20% меньше времени.', cost: 62, icon: 'bed', requires: 'longShift' },
   marketLedger: { name: 'Книга заказов', desc: 'Все заказы приносят на 8% больше монет.', cost: 80, icon: 'coin', requires: 'tradeCrates' },
@@ -81,16 +83,17 @@ export const UPGRADES = {
   packingLine: { name: 'Поточная линия', desc: 'Все рецепты готовятся на 25% быстрее.', cost: 310, icon: 'table', requires: 'largerBatches', gate: 'production' },
   coalKiln: { name: 'Горячая печь', desc: 'Переработка угля в топливо занимает на треть меньше времени.', cost: 275, icon: 'fuel', requires: 'efficientFuel', gate: 'production' },
   roadFreight: { name: 'Вместительный прицеп', desc: 'Трактор везёт до 64 товаров или четырёх корзин за рейс.', cost: 350, icon: 'fastBasket', requires: 'tractorGears', gate: 'production' },
+  heritageOrchard: { name: 'Сад у моста', desc: 'Деревья первого сада дают ещё три яблока.', cost: 185, icon: 'apple', requires: 'orchardStewards' },
+  firstFarm: { name: 'Первые грядки', desc: 'Первый ягодник даёт ещё четыре ягоды с куста.', cost: 285, icon: 'berry', requires: 'farmHarvest', gate: 'berries' },
+  freightHub: { name: 'Грузовой двор', desc: 'Трактор перевозит ещё 16 единиц товара за рейс.', cost: 475, icon: 'crate', requires: 'roadFreight', gate: 'production' },
+  trustedStall: { name: 'Лавка с именем', desc: 'Заказы приносят ещё на 6% больше монет.', cost: 315, icon: 'market', requires: 'marketLedger' },
+  orchardTeams: { name: 'Отлаженная смена', desc: 'Ёжики восстанавливаются ещё на 15% быстрее.', cost: 265, icon: 'bed', requires: 'shiftPlanning' },
+  furnaceCrew: { name: 'Бригада у печи', desc: 'Партии на производстве готовятся на 15% быстрее.', cost: 430, icon: 'fuel', requires: 'packingLine', gate: 'production' },
   forestPockets: { name: 'Лесные запасы', desc: 'Искатель приносит на четыре дикие ягоды больше.', cost: 104, icon: 'berry', requires: 'keenScent', gate: 'berries' },
 };
 
 const commonNames = ['Клён', 'Шишка', 'Мята', 'Плюш', 'Тиша', 'Иголка', 'Рыжик', 'Орешек', 'Слива', 'Крош', 'Крапинка', 'Зёрнышко', 'Брусника', 'Веточка', 'Мох', 'Осока', 'Туман', 'Печенька', 'Папоротник', 'Жёлудь', 'Морошка', 'Хвостик'];
 const rareNames = ['Луномох', 'Плюмберри', 'Ёжимир', 'Травосвет', 'Семёрка', 'Росинант', 'Пыльцебор', 'Снежегрив'];
-export const PERKS = {
-  pockets: { name: 'Полные карманы', desc: 'Берёт на одно яблоко больше за поход.', icon: 'basket' },
-  glean: { name: 'Внимательный', desc: 'Иногда находит дополнительное яблоко по дороге домой.', icon: 'apple' },
-  bloom: { name: 'Любит цветы', desc: 'Цветок даёт этому ёжику более сильный бонус.', icon: 'flower' },
-};
 export const GUIDE = { id: 'potato', name: 'Картошка', quills: 0, skin: 0, hat: null, pose: 0 };
 export const HEDGE_NAME_LIMIT = 24;
 export function hedgehogName(value) {
@@ -127,7 +130,7 @@ export function workplaces(state) {
       id, label: orchardName(id), icon: isBerryOrchard(id) ? 'berry' : 'seed', orchardId: id,
       roles: isBerryOrchard(id) ? [...orchardRoles, 'water'] : orchardRoles,
     })),
-    { id: FOREST_WORKPLACE, label: 'Лес', icon: 'flower', roles: state.trade.berryKnown ? ['scout', 'forage'] : ['scout'] },
+    { id: FOREST_WORKPLACE, label: 'Дикий лес', icon: 'flower', roles: state.trade.berryKnown ? ['scout', 'forage'] : ['scout'] },
     ...state.trade.stalls.map(({ id }, index) => ({
       id: stallWorkplace(id), label: `Лавка ${index + 1}`, icon: 'market', stallId: id, roles: marketRoles,
     })),
@@ -153,9 +156,9 @@ export const seedPrice = state => Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(BA
 export const nextLevelXp = level => BALANCE.firstLevelXp + Math.round((level - 1) * BALANCE.levelXpGrowth);
 export const productionRate = state => state.deliveries.reduce((sum, event) => sum + event.amount, 0) / (BALANCE.productionWindow / 1000);
 const treeYield = (state, variety, orchard) => variety === 'berry'
-  ? VARIETIES.berry.yield + (berryBounds(state, orchard.id).rich ? 4 : 0) + (state.upgrades.includes('berryBaskets') ? 2 : 0) + (state.upgrades.includes('farmHarvest') ? 2 : 0)
+  ? VARIETIES.berry.yield + (berryBounds(state, orchard.id).rich ? 4 : 0) + (state.upgrades.includes('berryBaskets') ? 2 : 0) + (state.upgrades.includes('farmHarvest') ? 2 : 0) + (state.upgrades.includes('firstFarm') && state.orchards.find(item => isBerryOrchard(item.id))?.id === orchard.id ? 4 : 0)
   : variety === 'wheat' ? VARIETIES.wheat.yield + (state.upgrades.includes('farmHarvest') ? 3 : 0)
-    : VARIETIES[variety].yield + (state.upgrades.includes('orchardStewards') ? 2 : 0) + (state.upgrades.includes('crop') ? 2 : 0) + orchard.compostLevel
+    : VARIETIES[variety].yield + (orchard.id === START_ORCHARD && state.upgrades.includes('heritageOrchard') ? 3 : 0) + (state.upgrades.includes('orchardStewards') ? 2 : 0) + (state.upgrades.includes('crop') ? 2 : 0) + orchard.compostLevel
   + Number(variety !== 'red' && state.upgrades.includes('grafting'))
   + (orchard.id === START_ORCHARD && variety === 'red' ? orchard.specialtyLevel * 2 : 0);
 const growthRate = (orchard, tree) => {
@@ -168,12 +171,12 @@ const regrowthTime = (state, tree) => {
     / growthRate(orchardById(state, tree.orchardId), tree) / (state.trade.orchardPerks[tree.orchardId]?.mulch ? 1.22 : 1);
 };
 const flowerDuration = state => BALANCE.flowerDuration + (state.upgrades.includes('flower') ? 10000 : 0);
-const carryCapacity = (state, worker) => 1 + Math.floor(worker.stats.strength / 3) + Number(worker.perk === 'pockets') + Number(state.upgrades.includes('carry'));
-const staminaLimit = (state, worker) => 28 + worker.stats.endurance * 8 + (state.upgrades.includes('longShift') ? 14 : 0);
+const carryCapacity = (state, worker) => Math.max(1, 1 + Math.floor(worker.stats.strength / 3) + perkEffect(worker, 'carry') + Number(state.upgrades.includes('carry')));
+const staminaLimit = (state, worker) => Math.max(12, Math.round((28 + worker.stats.endurance * 8 + perkEffect(worker, 'stamina') + (state.upgrades.includes('longShift') ? 14 : 0)) * perkEffect(worker, 'endurance', 1)));
 const harvestTime = (state, workers, variety) => {
   const dexterity = Math.max(...workers.map(worker => worker.stats.dexterity));
   const tools = variety === 'berry' ? 0 : globalUpgradeBonus(state, 'tools');
-  return 2200 * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .095) * (1 + tools));
+  return 2200 * Math.min(...workers.map(worker => perkEffect(worker, 'harvest', 1))) * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .095) * (1 + tools));
 };
 const loadingTime = worker => 1800 / (1 + worker.stats.handling * .075);
 const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .67 + worker.stats.strength * .027) * (state.upgrades.includes('paving') ? 1.22 : 1);
@@ -214,7 +217,7 @@ function generateWorker(state, orchard = state.orchards[0]) {
     skin: rareSkin ? 5 + Math.floor(random(state) * 3) : Math.floor(random(state) * 5),
     hat: hasHat ? choose(state, ['berry', 'leaf', 'acorn']) : null,
     pose: Math.floor(random(state) * 3),
-    perk: random(state) < BALANCE.perkChance ? choose(state, Object.keys(PERKS)) : null,
+    perk: random(state) < BALANCE.perkChance ? rollPerk(random(state) * 100, random(state)) : null,
     trips: 0, orchardId: orchard.id, workRole: 'auto', sleepUntil: null,
     stats: Object.fromEntries(Object.keys(DEFAULT_STATS).map(id => [id, 1 + Math.floor(random(state) * 5) + Math.floor(random(state) * 5)])),
   };
@@ -284,7 +287,10 @@ export function canPlaceSprinkler(state, point, orchardId = START_ORCHARD, sprin
     && orchard.sprinklers.every(sprinkler => sprinkler.id === sprinklerId || distance(sprinkler, point) >= 45));
 }
 
-export const canSendBasket = (state, orchard) => !state.unlocked && Boolean(orchard?.ready.length) && !state.jobs.some(job => job.kind === 'manual');
+const tractorCollecting = (state, orchardId) => state.industry.tractors.some(({ trip }) => trip?.source === orchardId && !trip.loaded);
+export const canSendBasket = (state, orchard) => Boolean(orchard?.ready.length)
+  && !state.jobs.some(job => job.kind === 'manual' || job.orchardId === orchard.id && job.kind === 'delivery' && job.phase === 'load')
+  && !tractorCollecting(state, orchard.id);
 
 function rescaleGrowth(state, orchard, oldRate) {
   for (const tree of state.trees) {
@@ -306,20 +312,20 @@ function earnLevels(state) {
   while (state.xpProgress >= nextLevelXp(state.level)) {
     state.xpProgress -= nextLevelXp(state.level);
     state.level += 1;
-    state.xp += state.level < 9 ? 1 : 2 + Math.floor((state.level - 9) / 8);
+    state.xp += state.level < 9 ? 1 : 2 + Math.floor(Math.sqrt((state.level - 9) / 8));
   }
 }
 
-function deposit(state, cargo, orchardId, worker) {
+function deposit(state, cargo, orchardId, worker, home = HOUSE) {
   const amount = fruitValue(cargo);
-  state.apples += amount;
-  state.trade.berries += cargo.berry ?? 0;
-  adjustStock(state, 'wheat', cargo.wheat ?? 0);
+  adjustStock(state, 'apples', amount, home);
+  adjustStock(state, 'berries', cargo.berry ?? 0, home);
+  adjustStock(state, 'wheat', cargo.wheat ?? 0, home);
   if (cargo.berry) notice(state, `Доставлено ягод +${cargo.berry}.`, 'berry');
   const alreadyReceived = state.basketReceipt?.at === state.time ? state.basketReceipt.amount : 0;
   const berries = (state.basketReceipt?.at === state.time ? state.basketReceipt.berries ?? 0 : 0) + (cargo.berry ?? 0);
   state.basketReceipt = { at: state.time, amount: alreadyReceived + amount, ...(berries ? { berries } : {}), id: state.nextId++ };
-  state.xpProgress += amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0);
+  state.xpProgress += state.trade.permit ? Math.ceil((amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0)) * .72) : amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0);
   earnLevels(state);
   if (worker) {
     state.deliveries.push({ amount, at: state.time });
@@ -412,15 +418,17 @@ const actions = {
     const orchard = orchardById(state, orchardId);
     if (!canSendBasket(state, orchard)) return false;
     const carrier = { ...orchard.basket, left: false };
-    const route = routeTo(carrier, HOUSE);
+    const home = nearestHome(state, carrier);
+    const route = planGardenWalk(state, carrier, home);
     if (!route) return false;
-    state.jobs.push({ id: state.nextId++, kind: 'manual', phase: 'haul', workers: [], orchardId, carrier, route, cargo: takeReady(orchard) });
+    state.jobs = state.jobs.filter(job => job.kind !== 'delivery' || job.orchardId !== orchardId || job.phase !== 'toBasket');
+    state.jobs.push({ id: state.nextId++, kind: 'manual', phase: 'haul', workers: [], orchardId, carrier, route, homeId: home.id ?? 'house', cargo: takeReady(orchard) });
     notice(state, 'Полная корзина отправлена к дому.', 'basket');
     return true;
   },
   unlock(state) {
     if (!potatoAvailable(state)) return false;
-    state.apples -= BALANCE.mystery;
+    adjustStock(state, 'apples', -BALANCE.mystery);
     state.unlocked = true;
     const friend = generateWorker(state);
     guide(state, `Я Картошка! Я привёл друга — ${friend.name}. Он соберёт яблоки и отнесёт полную корзину к дому.`, 'intro');
@@ -429,14 +437,14 @@ const actions = {
   buySeed(state) {
     const price = seedPrice(state);
     if (state.apples < price) return false;
-    state.apples -= price;
+    adjustStock(state, 'apples', -price);
     state.seeds += 1;
     state.seedPurchases += 1;
     return true;
   },
   buyForestSeed(state) {
     if (!orchardById(state, FOREST_ORCHARD) || state.apples < 85) return false;
-    state.apples -= 85;
+    adjustStock(state, 'apples', -85);
     state.forestSeeds++;
     return true;
   },
@@ -458,7 +466,7 @@ const actions = {
     } else {
       const price = sprinklerPrice(orchard);
       if (state.apples < price) return false;
-      state.apples -= price;
+      adjustStock(state, 'apples', -price);
       orchard.irrigationLevel ||= 1;
       orchard.sprinklers = [...orchard.sprinklers, sprinkler];
     }
@@ -466,12 +474,51 @@ const actions = {
     notice(state, sprinklerId === null ? 'Разбрызгиватель установлен.' : 'Разбрызгиватель перенесён.', 'water');
     return true;
   },
+  previewRecruit(state) {
+    if (!state.unlocked || state.recruitOffer) return false;
+    state.recruitOffer = generateWorker(state);
+    state.workers.pop();
+    return true;
+  },
+  saveCrew(state, { name, ids }) {
+    const title = hedgehogName(name);
+    if (!title || !Array.isArray(ids)) return false;
+    const members = state.workers.filter(worker => ids.includes(worker.id)).map(worker => ({
+      id: worker.id, place: workerWorkplace(worker), role: worker.workRole,
+    }));
+    if (!members.length) return false;
+    state.crews ??= [];
+    state.crews = [...state.crews.filter(crew => crew.name !== title), { name: title, members }].slice(-8);
+    return true;
+  },
+  assignCrew(state, { ids, place, role, name }) {
+    const saved = state.crews?.find(crew => crew.name === name);
+    const members = saved?.members ?? (Array.isArray(ids) ? [...new Set(ids)].map(id => ({ id, place, role })) : []);
+    if (!members.length) return false;
+    let assigned = 0;
+    for (const member of members) {
+      const worker = state.workers.find(item => item.id === member.id);
+      const target = workplaces(state).find(item => item.id === member.place);
+      if (!worker || !target?.roles.includes(member.role) || state.industry.tractors.some(tractor => tractor.trip?.driverId === worker.id)) continue;
+      if (workerWorkplace(worker) !== member.place && !actions.assignWorkplace(state, member)) continue;
+      actions.assignRole(state, member);
+      assigned++;
+    }
+    notice(state, `Назначено ${assigned}/${members.length}. Проверь места и незавершённые рейсы остальных.`, 'group');
+    return true;
+  },
   recruit(state, { orchardId = START_ORCHARD }) {
     const price = hirePrice(state);
     const orchard = orchardById(state, orchardId);
     if (!state.unlocked || !orchard || state.workers.length >= housingCapacity(state) || state.apples < price) return false;
-    state.apples -= price;
-    const worker = generateWorker(state, orchard);
+    adjustStock(state, 'apples', -price);
+    const worker = state.recruitOffer ?? generateWorker(state, orchard);
+    if (state.recruitOffer) {
+      Object.assign(worker, orchard.basket, { orchardId: orchard.id, stamina: staminaLimit(state, worker) });
+      if (state.workers.some(other => other.name === worker.name)) worker.name = `${worker.name} ${state.workers.length + 1}`;
+      state.workers.push(worker);
+      delete state.recruitOffer;
+    }
     notice(state, `${worker.name} теперь помогает в саду.`, 'group');
     return true;
   },
@@ -489,6 +536,13 @@ const actions = {
     if (!worker || !target || workerWorkplace(worker) === place
       || state.industry.tractors.some(tractor => tractor.trip?.driverId === id)
       || (target.kind === 'tractor' && state.workers.some(other => other.siteId === target.id))) return false;
+    if (worker.industryCargo) {
+      adjustStock(state, worker.industryCargo.item, worker.industryCargo.amount, nearestHome(state, worker));
+      delete worker.industryCargo;
+    }
+    if (worker.fuelCan) adjustStock(state, 'fuel', worker.fuelCan, nearestHome(state, worker));
+    delete worker.fuelCan;
+    delete worker.refueling;
     worker.siteId = target.industryId ?? null;
     delete worker.industryRoute;
     delete worker.industryDropoff;
@@ -504,6 +558,13 @@ const actions = {
     if (!worker || worker.workRole === role) return false;
     const place = workerWorkplace(worker);
     if (!workplaces(state).find(item => item.id === place)?.roles.includes(role)) return false;
+    if (worker.industryCargo) {
+      adjustStock(state, worker.industryCargo.item, worker.industryCargo.amount, nearestHome(state, worker));
+      delete worker.industryCargo;
+    }
+    if (worker.fuelCan) adjustStock(state, 'fuel', worker.fuelCan, nearestHome(state, worker));
+    delete worker.fuelCan;
+    delete worker.refueling;
     worker.workRole = role;
     notice(state, `${worker.name} — ${workRoleLabel(place, role).toLowerCase()}.`, 'hedge');
     return true;
@@ -522,7 +583,7 @@ const actions = {
     const level = shopLevel(state, id, orchard);
     const price = shopPrice(id, level);
     if (level >= SHOP[id].max || state.apples < price || (id === 'sprinkler' && !orchard.sprinklers.length)) return false;
-    state.apples -= price;
+    adjustStock(state, 'apples', -price);
     if (id === 'secondPlot') {
       state.orchards.push(makeOrchard(EAST_ORCHARD, EAST_BASKET));
       guide(state, 'Восточный сад открыт. Выбери сад на карте, чтобы заняться его улучшениями. У моста можно увеличить урожай обычных яблок, а на востоке быстрее выращивать янтарные.', 'east');
@@ -600,11 +661,11 @@ export function act(state, action, fields = {}) {
 function speed(state, worker) {
   const favorite = state.favorites.includes(worker.id) ? BALANCE.favoriteBoost : 1;
   const pace = state.upgrades.includes('pace') ? 1.18 : 1;
-  const flower = flowerActive(state) ? BALANCE.flowerBoost + (worker.perk === 'bloom' ? .15 : 0) + (state.upgrades.includes('flowerPower') ? .15 : 0) : 1;
-  return BALANCE.stride * (1 + (worker.stats.speed - 5) * .045) * favorite * pace * flower * (1 + globalUpgradeBonus(state, 'boots'));
+  const flower = flowerActive(state) ? BALANCE.flowerBoost + perkEffect(worker, 'bloom') + (state.upgrades.includes('flowerPower') ? .15 : 0) : 1;
+  return BALANCE.stride * perkEffect(worker, 'speed', 1) * (1 + (worker.stats.speed - 5) * .045) * favorite * pace * flower * (1 + globalUpgradeBonus(state, 'boots'));
 }
 
-export const flowerDetection = (worker, state) => 70 + worker.stats.foraging * 18 + (state?.upgrades.includes('keenScent') ? 45 : 0);
+export const flowerDetection = (worker, state) => 70 + worker.stats.foraging * 18 + perkEffect(worker, 'detect') + (state?.upgrades.includes('keenScent') ? 45 : 0);
 
 export function workerCharacteristics(state, worker) {
   return { speed: speed(state, worker), carry: carryCapacity(state, worker), trips: worker.trips ?? 0,
@@ -615,7 +676,9 @@ export function workerActivity(state, worker) {
   if (worker.sleepUntil !== null) return 'Спит';
   const job = state.jobs.find(item => item.workers.includes(worker.id));
   if (!job && INDUSTRY_ROLES.includes(worker.workRole)) return WORK_ROLES[worker.workRole];
+  if (!job && worker.workRole === 'haul') return 'Ждёт полную корзину';
   if (!job) return worker.workRole === 'scout' ? 'Готовится к поиску' : 'Ждёт урожая';
+  if (job.kind === 'pick' && worker.workRole === 'haul') return 'Заканчивает сбор';
   if (job.kind === 'restock') return job.phase === 'house' ? 'Идёт за товаром' : 'Несёт товар в лавку';
   if (TRADE_ROLES.includes(job.kind)) return WORK_ROLES[job.kind];
   if (job.kind === 'rest') return 'Идёт к лежанке';
@@ -625,8 +688,13 @@ export function workerActivity(state, worker) {
   return { seek: 'Идёт к яблоне', pick: 'Собирает яблоки', basket: 'Несёт яблоки в корзину' }[job.phase];
 }
 
+function planGardenWalk(state, actor, target) {
+  const plan = findGardenRoute(actor, target, state.industry.roads, state.upgrades.includes('roots') ? orchardPlots(state) : []);
+  return plan && routeTo(actor, target, plan);
+}
+
 function walkTo(state, actor, job, target, stride, seconds) {
-  if (!job.route || job.route.x !== target.x || job.route.y !== target.y) job.route = routeTo(actor, target, undefined, state.industry.roads);
+  if (!job.route || job.route.x !== target.x || job.route.y !== target.y) job.route = planGardenWalk(state, actor, target);
   return job.route && followRoute(actor, job.route, stride, seconds, state.industry.roads);
 }
 
@@ -635,7 +703,7 @@ function walkGroup(state, workers, job, target, seconds) {
   return workers.map(worker => {
     let route = job.routes[worker.id];
     if (!route || route.x !== target.x || route.y !== target.y) {
-      route = routeTo(worker, target, undefined, state.industry.roads);
+      route = planGardenWalk(state, worker, target);
       job.routes[worker.id] = route;
     }
     return route && followRoute(worker, route, stride, seconds, state.industry.roads);
@@ -664,7 +732,7 @@ function movePick(state, job, workers, orchard, seconds, tree) {
   }
   if (!walkGroup(state, workers, job, orchard.basket, seconds)) return false;
   const space = availableSpace(state, orchard, job);
-  const gleaned = job.load < space && workers.some(worker => worker.perk === 'glean') && random(state) < .22;
+  const gleaned = job.load < space && workers.some(worker => perkEffect(worker, 'glean') > 0) && random(state) < Math.max(...workers.map(worker => perkEffect(worker, 'glean')));
   const accepted = stage(state, orchard, job.variety, Math.min(space, job.load + Number(gleaned)));
   job.load = Math.max(0, job.load - accepted);
   return job.load === 0;
@@ -697,7 +765,7 @@ function moveDelivery(state, job, worker, orchard, seconds) {
   }
   if (job.phase === 'unload') {
     if (state.time < job.until) return false;
-    deposit(state, job.cargo, job.orchardId, worker);
+    deposit(state, job.cargo, job.orchardId, worker, nearestHome(state, orchard.basket));
     worker.trips += 1;
     job.cargo = null;
     job.phase = 'return';
@@ -755,7 +823,7 @@ function moveScout(state, job, worker, seconds) {
 }
 
 function startSleep(state, worker) {
-  worker.sleepUntil = state.time + (state.upgrades.includes('naps') ? 5200 : 8000) * (1 - globalUpgradeBonus(state, 'teahouse')) * (state.upgrades.includes('shiftPlanning') ? .8 : 1);
+  worker.sleepUntil = state.time + (state.upgrades.includes('naps') ? 5200 : 8000) * (1 - globalUpgradeBonus(state, 'teahouse')) * (state.upgrades.includes('shiftPlanning') ? .8 : 1) * perkEffect(worker, 'rest', 1) * (state.upgrades.includes('orchardTeams') ? .85 : 1);
 }
 
 function restAtBed(state, worker) {
@@ -782,8 +850,8 @@ function moveJobs(state, seconds) {
   const orchardsById = new Map(state.orchards.map(orchard => [orchard.id, orchard]));
   state.jobs = state.jobs.filter(job => {
     if (job.kind === 'manual') {
-      if (!followRoute(job.carrier, job.route, 185, seconds)) return true;
-      deposit(state, job.cargo, job.orchardId);
+      if (!followRoute(job.carrier, job.route, 185, seconds, state.industry.roads)) return true;
+      deposit(state, job.cargo, job.orchardId, undefined, industrySite(state, job.homeId) ?? HOUSE);
       return false;
     }
     const workers = job.workers.map(id => byId.get(id));
@@ -796,7 +864,7 @@ function moveJobs(state, seconds) {
       return false;
     }
     for (const worker of workers) worker.stamina = Math.max(0, worker.stamina - seconds);
-    if (TRADE_ROLES.includes(job.kind)) return !moveTradeJob(state, job, workers[0], speed(state, workers[0]), seconds, nearestHome(state, state.trade.stalls.find(stall => stall.id === job.stallId) ?? orchard.basket), state.industry.roads);
+    if (TRADE_ROLES.includes(job.kind)) return !moveTradeJob(state, job, workers[0], speed(state, workers[0]), seconds, nearestHome(state, state.trade.stalls.find(stall => stall.id === job.stallId) ?? orchard.basket), state.industry.roads, target => planGardenWalk(state, workers[0], target));
     if (job.kind === 'scout') return !moveScout(state, job, workers[0], seconds);
     if (job.kind === 'transfer') {
       const worker = workers[0];
@@ -809,7 +877,7 @@ function moveJobs(state, seconds) {
 }
 
 function startPick(state, orchard, workers, tree, planned) {
-  const routes = Object.fromEntries(workers.map((worker, i) => [worker.id, routeTo(worker, tree, planned?.[i])]));
+  const routes = Object.fromEntries(workers.map((worker, i) => [worker.id, state.upgrades.includes('roots') ? planGardenWalk(state, worker, tree) : routeTo(worker, tree, planned?.[i])]));
   if (Object.values(routes).some(route => !route)) return false;
   const ids = workers.map(worker => worker.id);
   state.jobs.push({ id: state.nextId++, kind: 'pick', phase: 'seek', workers: ids, orchardId: orchard.id, tree: tree.id, load: 0, routes });
@@ -824,10 +892,11 @@ function startPick(state, orchard, workers, tree, planned) {
 }
 
 function dispatchBasket(state, orchard, idle) {
-  if (!orchard.ready.length || state.jobs.some(job => job.orchardId === orchard.id && (job.kind === 'manual' || (job.kind === 'delivery' && job.phase !== 'return')))) return;
+  if (!orchard.ready.length || tractorCollecting(state, orchard.id)
+    || state.jobs.some(job => job.orchardId === orchard.id && (job.kind === 'manual' || job.kind === 'delivery' && job.phase !== 'return'))) return;
   const couriers = idle.filter(worker => worker.workRole !== 'collect').sort((a, b) => Number(b.workRole === 'haul') - Number(a.workRole === 'haul'));
   for (const worker of couriers) {
-    const route = routeTo(worker, orchard.basket, undefined, state.industry.roads);
+    const route = planGardenWalk(state, worker, orchard.basket);
     if (!route) continue;
     state.jobs.push({ id: state.nextId++, kind: 'delivery', phase: 'toBasket', workers: [worker.id], orchardId: orchard.id, route, cargo: null });
     idle.splice(idle.indexOf(worker), 1);
@@ -910,7 +979,7 @@ function assignJobs(state, seconds) {
     }
     for (const worker of crew) {
       if (!inside(plotBounds(state, orchard.id), worker) && !busy.has(worker.id)) {
-        const route = routeTo(worker, orchard.basket, undefined, state.industry.roads);
+        const route = planGardenWalk(state, worker, orchard.basket);
         if (route) state.jobs.push({ id: state.nextId++, kind: 'transfer', phase: 'walk', workers: [worker.id], orchardId: orchard.id, route });
       }
     }
@@ -939,7 +1008,7 @@ export function advance(state, elapsed) {
   advanceCustomers(next, elapsed / 1000, random);
   moveJobs(next, elapsed / 1000);
   assignJobs(next, elapsed / 1000);
-  advanceIndustry(next, elapsed / 1000, deposit);
+  advanceIndustry(next, elapsed / 1000, deposit, (actor, target) => planGardenWalk(next, actor, target));
   earnLevels(next);
   if (next.flowerAt && next.time >= next.flowerAt) {
     if (!next.flowers.length) spawnFlower(next);
@@ -1091,8 +1160,17 @@ function readGame(raw, legacy) {
       state.shelvesLevel ??= 0;
       state.forestSeeds ??= 0;
       state.trade ??= newTrade();
-      state.industry = { ...newIndustry(), ...state.industry };
+      state.industry = { ...newIndustry(), logisticsVersion: 0, ...state.industry };
       if (!validIndustry(state.industry)) return null;
+      if (!migrateLogistics(state)) return null;
+      if (state.crews !== undefined && (!Array.isArray(state.crews) || !state.crews.every(crew => hedgehogName(crew?.name)
+        && Array.isArray(crew.members) && crew.members.every(member => typeof member?.id === 'string'
+          && typeof member.place === 'string' && Object.hasOwn(WORK_ROLES, member.role))))) return null;
+      if (state.workers.some(worker => worker.industryCargo && (!Object.hasOwn(GOODS, worker.industryCargo.item)
+        || !Number.isSafeInteger(worker.industryCargo.amount) || worker.industryCargo.amount <= 0))) return null;
+      const offer = state.recruitOffer;
+      if (offer && (typeof offer.id !== 'string' || !hedgehogName(offer.name)
+        || !Object.keys(DEFAULT_STATS).every(key => Number.isFinite(offer.stats?.[key])))) return null;
       migrateMarketProgress(state);
       state.version = 4;
       const previousGoal = BALANCE.firstLevelXp + (state.level - 1) * 2;

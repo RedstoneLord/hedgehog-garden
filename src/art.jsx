@@ -2,7 +2,7 @@ import { memo } from 'react';
 import landscape from './pixel-landscape.png?inline';
 import ambient from './pixel-ambient.png?inline';
 import wind from './pixel-wind.png?inline';
-import { AMBIENT_FRAMES, terrainKind, WORLD } from './terrain.js';
+import { AMBIENT_FRAMES, fenceSegments, terrainKind, WORLD } from './terrain.js';
 
 export function pixelPaths(rows) {
   const paths = {};
@@ -324,20 +324,8 @@ export const OrchardPavers = memo(function OrchardPavers({ x, y, width, height, 
 });
 
 export const OrchardFence = memo(function OrchardFence({ x, y, width, height }) {
-  const segments = [];
-  const post = 24;
-  const clearStrip = (a, b) => [0, .5, 1].every(t => terrainKind({ x: x + a.x + (b.x - a.x) * t, y: y + a.y + (b.y - a.y) * t }) === 'ground');
-  function side(length, pointAt) {
-    for (let lengthAt = 0; lengthAt < length; lengthAt += post) {
-      const a = pointAt(lengthAt);
-      const b = pointAt(Math.min(length, lengthAt + post));
-      if (clearStrip(a, b)) segments.push([a, b]);
-    }
-  }
-  side(width, along => ({ x: along, y: 0 }));
-  side(width, along => ({ x: along, y: height }));
-  side(height, along => ({ x: 0, y: along }));
-  side(height, along => ({ x: width, y: along }));
+  const segments = fenceSegments({ x,y,width,height }).map(pair =>
+    pair.map(point => ({ x: point.x - x, y: point.y - y })));
   const rail = offset => segments.map(([a,b]) => `M${a.x} ${a.y + offset}L${b.x} ${b.y + offset}`).join('');
   const posts = segments.map(([a,b]) => `M${a.x - 3} ${a.y - 17}h6v23h-6zM${b.x - 3} ${b.y - 17}h6v23h-6z`).join('');
   return <svg className="orchard-fence" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" shapeRendering="crispEdges">

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { act, advance, importGame, newGame, orchardPlots, plotBounds, workerWorkplace } from '../src/game.js';
-import { COAL_SITES, GOODS, housingCapacity, nearestHome, PRODUCTION_PRICE, RECIPES, stockCount } from '../src/industry.js';
+import { adjustStock, COAL_SITES, GOODS, homeStock, housingCapacity, nearestHome, PRODUCTION_PRICE, RECIPES, stockCount } from '../src/industry.js';
 import { canServe, marketSite, orderLines } from '../src/trade.js';
 import { findRoute } from '../src/routes.js';
 import { soilRate } from '../src/siting.js';
@@ -39,8 +39,22 @@ test('production costs 10,000 coins and multiple workshops keep independent reci
   state = act(state, 'craft', { id: second.id, key: 'slices' });
   state = importGame(JSON.stringify(state));
   state = advance(state, RECIPES.compote.ms + 10);
-  assert.equal(stockCount(state, 'compote'), RECIPES.compote.amount);
-  assert.equal(stockCount(state, 'slices'), RECIPES.slices.amount);
+  assert.equal(state.industry.workshops[0].output.compote, RECIPES.compote.amount);
+  assert.equal(state.industry.workshops[1].output.slices, RECIPES.slices.amount);
+});
+
+test('a maker stays for an active batch when a small amount of output is waiting', () => {
+  let state = build(act(ready(), 'unlockProduction'), 'workshop', workshop);
+  const site = state.industry.workshops[0];
+  const workerId = state.workers[0].id;
+  state = act(state, 'assignWorkplace', { id: workerId, place: site.id });
+  Object.assign(state.workers[0], workshop);
+  state.industry.workshops[0].output.slices = 4;
+  state.industry.workshops[0].batch = { key: 'slices', method: 'worker', until: state.time + 5000 };
+  const advanced = advance(state, 200);
+  assert.equal(advanced.workers[0].x, workshop.x);
+  assert.equal(advanced.workers[0].y, workshop.y);
+  assert.equal(advanced.industry.workshops[0].output.slices, 4);
 });
 
 test('mixed farms water berries and wheat, and wheat can be processed into flour and pie', () => {
@@ -64,48 +78,35 @@ test('mixed farms water berries and wheat, and wheat can be processed into flour
   state.industry.stock.wheat = 10;
   state = act(state, 'craft', { id, key: 'flour' });
   state = advance(state, RECIPES.flour.ms);
+  state = act(state, 'takeIndustryStock', { id });
   state = act(state, 'upgradeWorkshop', { id });
   state = act(state, 'craft', { id, key: 'pie' });
   state = advance(state, RECIPES.pie.ms);
   assert.equal(stockCount(state, 'flour'), RECIPES.flour.amount - RECIPES.pie.needs.flour);
-  assert.equal(stockCount(state, 'pie'), RECIPES.pie.amount);
+  assert.equal(state.industry.workshops[0].output.pie, RECIPES.pie.amount);
 });
 
-test('inexhaustible coal powers factory automation and workshop staff can buy jars', () => {
-  let state = act(ready(), 'unlockProduction');
-  state = build(state, 'mine', COAL_SITES[1]);
-  state = build(state, 'workshop', workshop);
-  const mine = state.industry.mines[0].id;
-  const id = state.industry.workshops[0].id;
-  const worker = state.workers[0].id;
-  for (let cycle = 0; cycle < 2; cycle++) {
-    state = act(state, 'makeFuel', { id: mine });
-    state = advance(state, 7500);
-    assert.equal(state.industry.mines[0].coal, 3);
-    state = advance(state, 4500);
-    assert.equal(state.industry.mines[0].coal, 0);
-  }
+test('coal stays raw until a workshop crafts it, and factory conversion requires all branches', () => {
+  let state = build(build(act(ready(), 'unlockProduction'), 'mine', COAL_SITES[1]), 'workshop', workshop);
+  const { id: mine } = state.industry.mines[0];
+  const { id } = state.industry.workshops[0];
+  state = advance(act(state, 'mineCoal', { id: mine }), 7500);
+  assert.equal(state.industry.mines[0].coal, 6);
+  assert.equal(state.industry.mines[0].fuel, 0);
   state = act(state, 'takeIndustryStock', { id: mine });
-  assert.equal(stockCount(state, 'fuel'), 6);
+  state = advance(act(state, 'craft', { id, key: 'fuel' }), RECIPES.fuel.ms);
+  assert.equal(state.industry.workshops[0].output.fuel, RECIPES.fuel.amount);
   state = act(state, 'upgradeWorkshop', { id });
-  state = act(state, 'assignWorkplace', { id: worker, place: id });
-  assert.equal(workerWorkplace(state.workers[0]), id);
+  assert.equal(act(state, 'upgradeWorkshop', { id }), state);
+  for (const key of ['speed','yield','buffer']) state = act(state, 'upgradeStation', { id, key });
   state = act(state, 'upgradeWorkshop', { id });
-  assert.equal(state.workers[0].workRole, 'auto');
-  state = act(state, 'chooseRecipe', { id, key: 'jam' });
-  state = act(state, 'assignWorkplace', { id: worker, place: id });
-  state.trade.berries = 14;
-  state.workers[0].x = nearestHome(state, workshop).x;
-  state.workers[0].y = nearestHome(state, workshop).y;
-  const coins = state.trade.coins;
+  assert.equal(state.industry.workshops[0].level, 3);
+  const shop = state.industry.workshops[0];
+  shop.inputs.apples = 12;
+  shop.inputs.fuel = 1;
   state = advance(state, 200);
-  assert.ok(state.trade.coins < coins);
-  assert.equal(stockCount(state, 'fuel'), 5);
-  assert.equal(stockCount(state, 'jars'), 4);
-  state = advance(state, RECIPES.jam.ms);
-  assert.equal(state.industry.workshops[0].output.jam, RECIPES.jam.amount);
-  state = act(state, 'takeIndustryStock', { id });
-  assert.equal(stockCount(state, 'jam'), RECIPES.jam.amount);
+  assert.equal(state.industry.workshops[0].batch.method, 'factory');
+  assert.equal(state.industry.workshops[0].inputs.fuel, 0);
 });
 
 test('a red tractor delivers finished goods to an accepted order and a save preserves its cargo', () => {
@@ -123,14 +124,14 @@ test('a red tractor delivers finished goods to an accepted order and a save pres
   stall.customers.push({ id: 617, kind: 'bobby', gate: 0, phase: 'queue', ...roadStall,
     order: { pie: 5, accepted: true, coins: 100 + 5 * GOODS.pie.value } });
   assert.deepEqual(orderLines(stall.customers[0].order).map(line => line.key), ['pie']);
-  for (let n = 0; n < 100 && !state.industry.tractors[0].trip?.loaded; n++) state = advance(state, 200);
+  for (let n = 0; n < 450 && !state.industry.tractors[0].trip?.loaded; n++) state = advance(state, 200);
   assert.ok(state.industry.tractors[0].trip?.loaded);
   assert.equal(stockCount(state, 'pie'), 2);
   state.trade.stalls[0].spawnAt = 900_000;
   state = importGame(JSON.stringify(state));
   for (let n = 0; n < 100 && !state.industry.deliveries; n++) state = advance(state, 200);
   assert.equal(state.industry.deliveries, 1);
-  assert.equal(stockCount(state, 'fuel'), 2);
+  assert.equal(stockCount(state, 'fuel') + state.industry.tractors[0].tank, 2);
   const destination = state.trade.stalls[0];
   assert.ok(canServe(destination, destination.customers[0].order));
   const coins = state.trade.coins;
@@ -139,7 +140,7 @@ test('a red tractor delivers finished goods to an accepted order and a save pres
   assert.equal(state.trade.stalls[0].stock.pie, 0);
 });
 
-test('housing caps hiring and new houses share storage with the original home', () => {
+test('housing caps hiring and new houses have distinct stock', () => {
   let state = ready();
   while (state.workers.length < 10) state = act(state, 'recruit');
   assert.equal(housingCapacity(state), 10);
@@ -147,6 +148,13 @@ test('housing caps hiring and new houses share storage with the original home', 
   state = build(state, 'house', house);
   assert.equal(housingCapacity(state), 15);
   assert.equal(nearestHome(state, workshop).id, state.industry.houses[0].id);
+  const mainApples = state.apples;
+  adjustStock(state, 'apples', 25, state.industry.houses[0]);
+  assert.equal(homeStock(state, state.industry.houses[0], 'apples'), 25);
+  assert.equal(homeStock(state, undefined, 'apples'), mainApples);
+  const saved = importGame(JSON.stringify(state));
+  assert.equal(homeStock(saved, saved.industry.houses[0], 'apples'), 25);
+
   assert.equal(act(state, 'recruit').workers.length, 11);
 });
 
@@ -192,15 +200,78 @@ test('assigned workers operate a coal mine and workshop, and dismissed help stay
   state = act(state, 'assignWorkplace', { id: maker.id, place: shop });
   Object.assign(state.workers[0], COAL_SITES[1]);
   Object.assign(state.workers[1], workshop);
+  state.industry.workshops[0].inputs.apples = 12;
   state = advance(state, 100);
   assert.ok(state.industry.mines[0].mineAt);
   assert.equal(state.industry.workshops[0].batch.method, 'worker');
   state = advance(state, 8000);
   assert.equal(state.industry.workshops[0].output.slices, 6);
   state = advance(state, 4600);
-  assert.equal(state.industry.mines[0].fuel, 3);
+  assert.equal(state.industry.mines[0].coal, 6);
   const serial = state.guide.serial;
   assert.equal(act(state, 'dismissGuide', { serial: serial - 1 }), state);
   state = act(state, 'dismissGuide', { serial });
   assert.equal(importGame(JSON.stringify(state)).guide, null);
+});
+
+test('a legacy shared stock and unrefined coal survive logistics migration', () => {
+  let state = build(build(act(ready(), 'unlockProduction'), 'mine', COAL_SITES[1]), 'house', house);
+  delete state.industry.logisticsVersion;
+  delete state.industry.houses[0].stock;
+  Object.assign(state.industry.mines[0], { coal: 3, fuel: 7, refineAt: 4500 });
+  state.industry.stock.fuel = 4;
+  const apples = state.apples;
+  state = importGame(JSON.stringify(state));
+  assert.equal(homeStock(state, undefined, 'apples'), apples);
+  assert.deepEqual(state.industry.houses[0].stock, {});
+  assert.equal(state.industry.mines[0].coal, 3);
+  assert.equal(state.industry.mines[0].fuel, 7);
+  assert.equal(state.industry.mines[0].refineAt, null);
+  assert.equal(homeStock(state, undefined, 'fuel'), 4);
+  assert.deepEqual(importGame(JSON.stringify(state)), state);
+});
+
+test('warehouse stock cannot start an automatic recipe until a porter delivers it', () => {
+  let state = build(build(act(ready(), 'unlockProduction'), 'workshop', workshop), 'house', house);
+  const { id } = state.industry.workshops[0];
+  state = act(state, 'assignWorkplace', { id: state.workers[0].id, place: id });
+  Object.assign(state.workers[0], workshop);
+  state = advance(state, 200);
+  assert.equal(state.industry.workshops[0].batch, null);
+  state = act(state, 'recruit');
+  const worker = state.workers[1].id;
+  state = act(state, 'assignWorkplace', { id: worker, place: id });
+  state = act(state, 'assignRole', { id: worker, role: 'porter' });
+  Object.assign(state.workers[1], house);
+  adjustStock(state, 'apples', 24, state.industry.houses[0]);
+  state = advance(state, 200);
+  assert.ok(state.workers[1].industryCargo);
+  assert.equal(state.industry.workshops[0].batch, null);
+  state = importGame(JSON.stringify(state));
+  for (let i = 0; i < 100 && !state.industry.workshops[0].batch; i++) state = advance(state, 200);
+  assert.equal(state.industry.workshops[0].batch?.method, 'worker');
+  assert.equal(state.workers[0].x, workshop.x);
+});
+
+test('one tractor takes a reserved shipment to two nearby stalls without spending fuel twice', () => {
+  let state = build(act(ready(), 'unlockProduction'), 'tractor', tractor);
+  state = act(state, 'placeMarket', { point: roadStall });
+  state = act(state, 'placeMarket', { point: { x: 1660, y: 1320 } });
+  assert.equal(state.trade.stalls.length, 2);
+  const vehicle = state.industry.tractors[0];
+  state = act(state, 'assignWorkplace', { id: state.workers[0].id, place: vehicle.id });
+  Object.assign(state.workers[0], tractor);
+  state.industry.tractors[0].tank = 2;
+  state.industry.stock.pie = 10;
+  for (const stall of state.trade.stalls) {
+    stall.spawnAt = 900_000;
+    stall.customers.push({ id: state.nextId++, kind: 'bobby', gate: 0, phase: 'queue', x: stall.x, y: stall.y,
+      order: { pie: 5, accepted: true, coins: 160 } });
+  }
+  for (let n = 0; n < 100 && !state.industry.tractors[0].trip?.loaded; n++) state = advance(state, 200);
+  assert.ok(state.industry.tractors[0].trip?.nextDrop);
+  state = importGame(JSON.stringify(state));
+  for (let n = 0; n < 150 && state.industry.deliveries < 2; n++) state = advance(state, 200);
+  assert.deepEqual(state.trade.stalls.map(stall => stall.stock.pie), [5, 5]);
+  assert.equal(state.industry.tractors[0].tank, 1);
 });

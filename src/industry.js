@@ -1,5 +1,5 @@
 import { HOUSE, takeReady } from './orchard.js';
-import { canWalkStraight, closestRoadSegment, distance, findRoute, followRoute, roadGap, routeTo } from './routes.js';
+import { canWalkStraight, closestRoadSegment, distance, findRoute, findFreightRoute, followRoute, roadGap, routeTo } from './routes.js';
 import { roadDistance, terrainKind, WORLD } from './terrain.js';
 
 export const PRODUCTION_PRICE = 10_000;
@@ -9,7 +9,7 @@ export const BUILDINGS = {
   workshop: { label: 'Мастерская', icon: 'table', price: 1800, growth: 1.65 },
   mine: { label: 'Угольная шахта', icon: 'soil', price: 2900, growth: 1.65 },
   tractor: { label: 'Красный трактор', icon: 'fastBasket', price: 3600, growth: 1.7 },
-  house: { label: 'Дом для ёжиков', icon: 'bed', price: 2400, growth: 1.85 },
+  house: { label: 'Дом для ёжиков', icon: 'bed', price: 1800, growth: 1.45 },
 };
 export const COAL_SITES = [
   { x: 1710, y: -812 }, { x: 2700, y: -1000 }, { x: 3990, y: -968 }, { x: 4890, y: -770 },
@@ -17,6 +17,7 @@ export const COAL_SITES = [
 export const GOODS = {
   apples: { label: 'Яблоки', icon: 'apple' }, berries: { label: 'Ягоды', icon: 'berry' },
   wheat: { label: 'Пшеница', icon: 'wheat' }, flour: { label: 'Мука', icon: 'flour' },
+  coal: { label: 'Уголь', icon: 'soil' }, provisions: { label: 'Дорожный паёк', icon: 'bread' },
   jars: { label: 'Банки', icon: 'jar' }, fuel: { label: 'Топливо', icon: 'fuel' },
   slices: { label: 'Яблочные дольки', icon: 'apple', value: 7 },
   compote: { label: 'Яблочный компот', icon: 'compote', value: 9 },
@@ -29,6 +30,8 @@ export const GOODS = {
 };
 export const PRODUCED_GOODS = Object.keys(GOODS).filter(key => GOODS[key].value);
 export const RECIPES = {
+  fuel: { needs: { coal: 3 }, amount: 4, ms: 4500, level: 1 },
+  provisions: { needs: { apples: 8, berries: 6 }, amount: 3, ms: 5500, level: 1 },
   slices: { needs: { apples: 12 }, amount: 6, ms: 5500, level: 1 },
   compote: { needs: { apples: 16 }, amount: 6, ms: 8500, level: 1 },
   puree: { needs: { berries: 10 }, amount: 5, ms: 6500, level: 1 },
@@ -39,12 +42,12 @@ export const RECIPES = {
   jam: { needs: { berries: 14, jars: 4 }, amount: 4, ms: 12_000, level: 2 },
   mixedJam: { needs: { apples: 9, berries: 9, jars: 4 }, amount: 4, ms: 15_000, level: 2 },
 };
-export const INDUSTRY_ROLES = ['maker', 'buyer', 'miner', 'driver'];
+export const INDUSTRY_ROLES = ['maker', 'buyer', 'miner', 'driver', 'porter'];
 const buildingGroups = { workshop: 'workshops', mine: 'mines', house: 'houses', tractor: 'tractors' };
 
 export function newIndustry() {
   return { unlocked: false, wheatSeeds: 0, stock: {}, houses: [], workshops: [], mines: [], tractors: [], roads: [],
-    knownProducts: [], deliveries: 0 };
+    knownProducts: [], deliveries: 0, logisticsVersion: 1, priority: {}, paused: {} };
 }
 export const housingCapacity = state => 10 + 5 * state.industry.houses.length;
 export const buildingPrice = (state, kind) => {
@@ -54,17 +57,59 @@ export const buildingPrice = (state, kind) => {
 export const upgradeWorkshopPrice = shop => shop.level === 1 ? 2300 : 5100;
 export const stockCount = (state, key) => key === 'apples' ? state.apples
   : key === 'berries' ? state.trade.berries : state.industry?.stock[key] ?? 0;
-export function adjustStock(state, key, amount) {
+export const homesFor = state => [HOUSE, ...state.industry.houses];
+export const homeId = home => home?.id ?? 'house';
+export function homeStock(state, home, key) {
+  if (home?.id) return home.stock?.[key] ?? 0;
+  return Math.max(0, stockCount(state, key) - state.industry.houses.reduce((sum, site) => sum + (site.stock?.[key] ?? 0), 0));
+}
+export function adjustStock(state, key, amount, home) {
   if (!amount) return;
+  if (home?.id) {
+    home.stock ??= {};
+    home.stock[key] = (home.stock[key] ?? 0) + amount;
+  } else if (home === undefined && amount < -homeStock(state, HOUSE, key)) {
+    let remaining = -amount - homeStock(state, HOUSE, key);
+    for (const site of state.industry.houses) {
+      const debit = Math.min(remaining, homeStock(state, site, key));
+      if (!debit) continue;
+      site.stock[key] -= debit;
+      remaining -= debit;
+    }
+  }
   if (key === 'apples') state.apples += amount;
   else if (key === 'berries') state.trade.berries += amount;
   else state.industry.stock[key] = stockCount(state, key) + amount;
 }
 
-export function nearestHome(state, point) {
-  if (!state.industry.houses.length) return HOUSE;
-  const homes = [HOUSE, ...state.industry.houses].sort((a, b) => distance(point, a) - distance(point, b));
-  return homes.find(home => canWalkStraight(point, home) || findRoute(point, home)) ?? HOUSE;
+export function nearestHome(state, point, key, reserve = 0) {
+  if (!state.industry.houses.length && !key) return HOUSE;
+  const homes = homesFor(state).filter(home => !key || homeStock(state, home, key) > (home.id ? 0 : reserve))
+    .sort((a, b) => distance(point, a) - distance(point, b));
+  return homes.find(home => canWalkStraight(point, home) || findRoute(point, home, state.industry.roads)) ?? (key ? null : HOUSE);
+}
+
+export const STATION_UPGRADES = {
+  speed: { label: 'Быстрая работа', cost: 750 },
+  yield: { label: 'Крупная партия', cost: 1100 },
+  buffer: { label: 'Большой склад', cost: 950 },
+  efficiency: { label: 'Экономная топка', cost: 1800 },
+};
+const tuning = (site, key) => site.improvements?.[key] ?? 0;
+export const stationCapacity = site => 48 + 32 * tuning(site, 'buffer');
+export const stationUpgradePrice = (site, key) => STATION_UPGRADES[key].cost * (1 + tuning(site, key));
+export const factoryReady = shop => shop.level === 2 && ['speed','yield','buffer'].every(key => tuning(shop, key) > 0);
+
+export function migrateLogistics(state) {
+  const { industry } = state;
+  for (const home of industry.houses) home.stock ??= {};
+  for (const key of Object.keys(GOODS)) {
+    if (industry.houses.reduce((sum, home) => sum + (home.stock[key] ?? 0), 0) > stockCount(state, key)) return false;
+  }
+  if (industry.logisticsVersion === 1) return true;
+  for (const mine of industry.mines) mine.refineAt = null;
+  industry.logisticsVersion = 1;
+  return true;
 }
 
 export function industryStations(state) {
@@ -74,8 +119,8 @@ export function industryWorkplaces(state) {
   return industryStations(state).filter(site => site.kind !== 'house').map((site) => ({
     ...site, industryId: site.id, icon: BUILDINGS[site.kind].icon,
     label: site.level === 3 ? `Фабрика ${site.number}` : `${BUILDINGS[site.kind].label} ${site.number}`,
-    roles: site.kind === 'workshop' ? (site.level === 3 ? ['buyer'] : ['maker', 'buyer'])
-      : site.kind === 'mine' ? ['miner'] : ['driver'],
+    roles: site.kind === 'workshop' ? (site.level === 3 ? ['buyer', 'porter'] : ['maker', 'buyer', 'porter'])
+      : site.kind === 'mine' ? ['miner', 'porter'] : ['driver'],
   }));
 }
 export const industrySite = (state, id) => industryStations(state).find(site => site.id === id);
@@ -101,24 +146,37 @@ function notify(state, text, symbol) {
   state.notice = { text, symbol, at: state.time, serial: state.nextId++ };
 }
 
-export function canCraft(state, shop, key) {
+export function canCraft(state, shop, key, manual = false) {
   if (!shop || shop.kind !== 'workshop' || shop.batch || !Object.hasOwn(RECIPES, key)) return false;
   const recipe = RECIPES[key];
-  return shop.level >= recipe.level && Object.entries(recipe.needs).every(([item, qty]) =>
-    stockCount(state, item) + (shop.inputs[item] ?? 0) >= qty);
+  return shop.level >= recipe.level && Object.values(shop.output).reduce((sum, qty) => sum + qty, 0) + recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches')) + Number(key === 'fuel' && state.upgrades.includes('efficientFuel')) <= stationCapacity(shop)
+    && Object.entries(recipe.needs).every(([item, qty]) => {
+      const missing = qty - (shop.inputs[item] ?? 0);
+      const home = manual && missing > 0 && nearestHome(state, shop, item);
+      const stored = home ? homeStock(state, home, item) : 0;
+      return missing <= stored;
+    });
 }
 function startBatch(state, shop, key, method) {
-  if (!canCraft(state, shop, key) || (method === 'factory' && !stockCount(state, 'fuel'))) return false;
+  const manual = method === 'manual';
+  const needsFuel = method === 'factory' && key !== 'fuel'
+    && (!tuning(shop, 'efficiency') || !shop.fuelCoast);
+  if (!canCraft(state, shop, key, manual) || (needsFuel && !shop.inputs.fuel)) return false;
   const recipe = RECIPES[key];
   for (const [item, qty] of Object.entries(recipe.needs)) {
     const local = Math.min(qty, shop.inputs[item] ?? 0);
     shop.inputs[item] = (shop.inputs[item] ?? 0) - local;
-    adjustStock(state, item, local - qty);
+    if (local < qty) adjustStock(state, item, local - qty, nearestHome(state, shop, item));
   }
-  if (method === 'factory') adjustStock(state, 'fuel', -1);
+  if (needsFuel) shop.inputs.fuel--;
+  if (method === 'factory' && key !== 'fuel') shop.fuelCoast = needsFuel;
   const speed = (method === 'factory' ? 2 : method === 'worker' ? 1.18 : 1) *
-    (state.upgrades.includes('batchCraft') ? 1.25 : 1) * (state.upgrades.includes('packingLine') ? 1.25 : 1);
-  shop.batch = { key, method, until: state.time + recipe.ms / speed };
+    (1 + .25 * tuning(shop, 'speed')) * (state.upgrades.includes('batchCraft') ? 1.25 : 1) *
+    (state.upgrades.includes('packingLine') ? 1.25 : 1) * (state.upgrades.includes('furnaceCrew') ? 1.15 : 1) * (key === 'fuel' && state.upgrades.includes('coalKiln') ? 1.5 : 1);
+  const amount = recipe.amount + tuning(shop, 'yield') + Number(state.upgrades.includes('largerBatches'))
+    + Number(key === 'fuel' && state.upgrades.includes('efficientFuel'));
+  if (manual) state.industry.firstManualBatch = true;
+  shop.batch = { key, method, amount, until: state.time + recipe.ms / speed };
   return true;
 }
 
@@ -141,6 +199,7 @@ export const industryActions = {
     const group = state.industry[buildingGroups[kind]];
     const site = { ...location, id: `${kind}:${state.nextId++}`, kind, number: group.length + 1 };
     if (kind === 'workshop') Object.assign(site, { level: 1, recipe: 'slices', automatic: true, batch: null, inputs: {}, output: {} });
+    if (kind === 'house') site.stock = {};
     if (kind === 'mine') Object.assign(site, { fuel: 0, coal: 0 });
     if (kind === 'tractor') site.trip = null;
     group.push(site);
@@ -149,7 +208,7 @@ export const industryActions = {
   },
   upgradeWorkshop(state, { id }) {
     const shop = industrySite(state, id);
-    if (shop?.kind !== 'workshop' || shop.level >= 3) return false;
+    if (shop?.kind !== 'workshop' || shop.level >= 3 || (shop.level === 2 && !factoryReady(shop))) return false;
     const price = upgradeWorkshopPrice(shop);
     if (state.trade.coins < price) return false;
     state.trade.coins -= price;
@@ -161,6 +220,33 @@ export const industryActions = {
       }
     }
     notify(state, shop.level === 3 ? 'Фабрика работает на топливе.' : 'Открыты новые рецепты.', 'table');
+    return true;
+  },
+  upgradeStation(state, { id, key }) {
+    const site = industrySite(state, id);
+    if (!site || !['mine','workshop'].includes(site.kind) || !Object.hasOwn(STATION_UPGRADES, key)
+      || (key === 'efficiency' && site.level !== 3) || tuning(site, key) >= (site.level === 3 && key !== 'efficiency' ? 2 : 1)) return false;
+    const cost = stationUpgradePrice(site, key);
+    if (state.trade.coins < cost) return false;
+    state.trade.coins -= cost;
+    site.improvements ??= {};
+    site.improvements[key] = tuning(site, key) + 1;
+    return true;
+  },
+  setFreight(state, { id, priority, paused }) {
+    if (id !== 'house' && !industrySite(state, id) && !state.trade.stalls.some(stall => `stall:${stall.id}` === id)) return false;
+    if ([1, 2, 3].includes(priority)) state.industry.priority[id] = priority;
+    else if (typeof paused === 'boolean') state.industry.paused[id] = paused;
+    else return false;
+    return true;
+  },
+  useProvisions(state) {
+    if (!stockCount(state, 'provisions')) return false;
+    const crew = state.workers.filter(worker => worker.sleepUntil === null && worker.stamina < 35);
+    if (!crew.length) return false;
+    adjustStock(state, 'provisions', -1);
+    for (const worker of crew) worker.stamina = Math.min(45, worker.stamina + 15);
+    notify(state, 'Паёк восстановил силы уставшей команды.', 'bread');
     return true;
   },
   chooseRecipe(state, { id, key }) {
@@ -193,23 +279,31 @@ export const industryActions = {
   },
   takeIndustryStock(state, { id }) {
     const site = industrySite(state, id);
-    if (site?.kind === 'mine' && site.fuel) {
-      adjustStock(state, 'fuel', site.fuel);
-      site.fuel = 0;
-      return true;
+    if (!site || !['mine','workshop'].includes(site.kind)) return false;
+    const home = nearestHome(state, site);
+    let room = 24;
+    const output = site.kind === 'mine' ? site : site.output;
+    for (const item of site.kind === 'mine' ? ['fuel','coal'] : Object.keys(output)) {
+      const reserved = state.industry.tractors.reduce((sum, { trip }) => sum
+        + (trip?.source === id && trip.item === item && !trip.loaded ? trip.amount : 0), 0);
+      const amount = Math.min(room, Math.max(0, (output[item] ?? 0) - reserved));
+      if (!amount) continue;
+      adjustStock(state, item, amount, home);
+      output[item] -= amount;
+      room -= amount;
     }
-    if (site?.kind !== 'workshop') return false;
-    const output = Object.entries(site.output).filter(([, qty]) => qty > 0);
-    if (!output.length) return false;
-    for (const [item, qty] of output) adjustStock(state, item, qty);
-    site.output = {};
+    if (room < 24 && site.kind === 'workshop') state.industry.firstWorkshopDelivery = true;
+    return room < 24;
+  },
+  mineCoal(state, { id }) {
+    const mine = industrySite(state, id);
+    const amount = 6 + 2 * tuning(mine ?? {}, 'yield');
+    if (mine?.kind !== 'mine' || mine.coal + amount > stationCapacity(mine) || mine.mineAt) return false;
+    mine.mineAt = state.time + 7500 / (1 + .25 * tuning(mine, 'speed'));
     return true;
   },
-  makeFuel(state, { id }) {
-    const mine = industrySite(state, id);
-    if (mine?.kind !== 'mine' || mine.fuel >= 18 || mine.refineAt || mine.mineAt) return false;
-    mine.mineAt = state.time + 7500;
-    return true;
+  makeFuel(state, fields) {
+    return industryActions.mineCoal(state, fields);
   },
   buildRoad(state, { from, to }) {
     if (!state.industry.unlocked || !onMap(from) || !onMap(to)) return false;
@@ -247,45 +341,66 @@ export const industryActions = {
 };
 
 export const incomingGoods = (state, id, key) => (state.industry?.tractors ?? []).reduce((n, { trip }) =>
-  n + (trip?.to === id && trip.item === key ? trip.amount : 0), 0);
+  n + (trip?.item === key ? (trip.to === id ? trip.amount - (trip.nextDrop?.amount ?? 0) : 0)
+    + (trip.nextDrop?.to === id ? trip.nextDrop.amount : 0) : 0), 0);
 function budget(state, store, key) {
-  return store.id ? (store.inputs[key] ?? 0) + incomingGoods(state, store.id, key) : stockCount(state, key);
+  return (store.inputs[key] ?? 0) + incomingGoods(state, store.id, key)
+    + state.workers.reduce((sum, { industryCargo }) => sum + (industryCargo?.siteId === store.id && industryCargo.item === key ? industryCargo.amount : 0), 0);
 }
 
 function chooseDelivery(state, tractor) {
   const options = [];
   const trailer = state.upgrades.includes('roadFreight');
-  const cargoLimit = trailer ? 64 : 48;
-  const platforms = [HOUSE, ...state.industry.houses];
-  const home = nearestHome(state, tractor);
+  const cargoLimit = (trailer ? 64 : 48) + (state.upgrades.includes('freightHub') ? 16 : 0);
+  const platforms = homesFor(state);
+
   const offer = (from, to, amount, priority, item, source, destination) => {
-    if (amount > 0) options.push({ from, toPoint: to, item, source, to: destination, amount, priority });
+    if (amount > 0 && !state.industry.paused[source] && !state.industry.paused[destination]
+      && !state.industry.tractors.some(({ trip }) => trip?.source === source && trip.item === item && !trip.loaded)) {
+      options.push({ from, toPoint: to, item, source, to: destination, amount: Math.min(cargoLimit, amount), priority: priority * (state.industry.priority[destination] ?? 1) });
+    }
   };
   for (const orchard of state.orchards) {
-    if (orchard.ready.length) offer(orchard.basket, nearestHome(state, orchard.basket), Math.min(trailer ? 4 : 3, orchard.ready.length), 1, 'basket', orchard.id, 'house');
+    if (orchard.ready.length && !state.jobs.some(job => job.orchardId === orchard.id && job.kind === 'delivery' && ['toBasket', 'load'].includes(job.phase))) {
+      offer(orchard.basket, nearestHome(state, orchard.basket), Math.min(trailer ? 4 : 3, orchard.ready.length), 1, 'basket', orchard.id, homeId(nearestHome(state, orchard.basket)));
+    }
   }
-  for (const mine of state.industry.mines) offer(mine, nearestHome(state, mine), mine.fuel, stockCount(state, 'fuel') < 3 ? 3 : 2, 'fuel', mine.id, 'house');
+  for (const mine of state.industry.mines) {
+    if (mine.fuel >= 3) offer(mine, HOUSE, mine.fuel, 2, 'fuel', mine.id, 'house');
+    if (mine.coal >= 6) offer(mine, nearestHome(state, mine), mine.coal, 2, 'coal', mine.id, homeId(nearestHome(state, mine)));
+  }
   for (const shop of state.industry.workshops) {
-    for (const [item, qty] of Object.entries(shop.output)) offer(shop, nearestHome(state, shop), Math.min(qty, cargoLimit), 2, item, shop.id, 'house');
+    for (const [item, qty] of Object.entries(shop.output)) {
+      if (qty >= 8 || shop.automatic === false || ['fuel','provisions'].includes(item)) {
+        const home = nearestHome(state, shop);
+        offer(shop, home, qty, 2, item, shop.id, homeId(home));
+      }
+    }
     if (shop.automatic === false) continue;
-    for (const [item, qty] of Object.entries(RECIPES[shop.recipe].needs)) {
+    const inputs = { ...RECIPES[shop.recipe].needs };
+    if (shop.level === 3 && shop.recipe !== 'fuel') inputs.fuel = 2;
+    for (const [item, qty] of Object.entries(inputs)) {
       const need = Math.max(0, qty * 2 - budget(state, shop, item));
-      offer(home, shop, Math.min(stockCount(state, item), need), 2, item, 'house', shop.id);
+      for (const home of platforms) offer(home, shop, Math.min(homeStock(state, home, item), need), 3, item, homeId(home), shop.id);
+      for (const other of state.industry.workshops) {
+        if (other !== shop) offer(other, shop, Math.min(other.output[item] ?? 0, need), 4, item, other.id, shop.id);
+      }
+      if (item === 'coal') for (const mine of state.industry.mines) offer(mine, shop, Math.min(mine.coal, need), 4, item, mine.id, shop.id);
     }
   }
   for (const stall of state.trade.stalls) {
     const order = stall.customers.find(customer => customer.phase === 'queue')?.order;
     const capacity = 240 + stall.levels.shelves * 100 - Object.values(stall.stock).reduce((sum, qty) => sum + qty, 0)
       - state.jobs.reduce((sum, job) => sum + (job.stallId === stall.id ? job.cargo?.amount ?? 0 : 0), 0)
-      - state.industry.tractors.reduce((sum, item) => sum + (item.trip?.to === `stall:${stall.id}` ? item.trip.amount : 0), 0);
+      - Object.keys(GOODS).reduce((sum, item) => sum + incomingGoods(state, `stall:${stall.id}`, item), 0);
     if (!order?.accepted) continue;
     for (const item of ['apples', 'berries', ...PRODUCED_GOODS]) {
       const viaWorkers = state.jobs.reduce((sum, job) => sum + (job.stallId === stall.id && job.cargo?.key === item ? job.cargo.amount : 0), 0);
       const amount = (order[item] ?? 0) - (stall.stock[item] ?? 0) - viaWorkers - incomingGoods(state, `stall:${stall.id}`, item);
-      const warehouse = Math.max(0, stockCount(state, item) - (item === 'apples' ? stall.reserve : 0));
-      const load = Math.min(cargoLimit, amount, warehouse, capacity);
-      offer(platforms.reduce((a, b) => distance(b, tractor) + distance(b, stall) < distance(a, tractor) + distance(a, stall) ? b : a), stall,
-        load, 5, item, 'house', `stall:${stall.id}`);
+      for (const house of platforms) {
+        const warehouse = Math.max(0, homeStock(state, house, item) - (item === 'apples' && !house.id ? stall.reserve : 0));
+        offer(house, stall, Math.min(amount, warehouse, capacity), 5, item, homeId(house), `stall:${stall.id}`);
+      }
       for (const shop of state.industry.workshops) {
         offer(shop, stall, Math.min(cargoLimit, amount, shop.output[item] ?? 0, capacity), 5, item, shop.id, `stall:${stall.id}`);
       }
@@ -297,14 +412,30 @@ function chooseDelivery(state, tractor) {
   let score = 0;
   for (const trip of options.sort((a, b) => efficiency(b, estimate(b)) - efficiency(a, estimate(a)))) {
     if (efficiency(trip, estimate(trip)) <= score) break;
-    const empty = findRoute(tractor, trip.from, state.industry.roads);
-    const full = empty && findRoute(trip.from, trip.toPoint, state.industry.roads);
+    const empty = findFreightRoute(tractor, trip.from, state.industry.roads);
+    const full = empty && findFreightRoute(trip.from, trip.toPoint, state.industry.roads);
     if (!full) continue;
     const value = efficiency(trip, empty.cost + full.cost);
     if (value <= score) continue;
     best = { item: trip.item, amount: trip.amount, source: trip.source, to: trip.to, from: { x: trip.from.x, y: trip.from.y }, toPoint: { x: trip.toPoint.x, y: trip.toPoint.y },
       route: routeTo(tractor, trip.from, empty), loadedRoute: routeTo(trip.from, trip.toPoint, full) };
     score = value;
+  }
+  if (best && best.item !== 'basket' && !best.to.startsWith('house')) {
+    const source = industrySite(state, best.source);
+    const stock = source?.kind === 'workshop' ? source.output[best.item] ?? 0
+      : source?.kind === 'mine' ? source[best.item] : homeStock(state, source ?? HOUSE, best.item);
+    const space = Math.min(stock, cargoLimit) - best.amount;
+    if (space <= 0) return best;
+    for (const other of options) {
+      if (other.source !== best.source || other.item !== best.item || other.to === best.to || other.to.startsWith('house')
+        || distance(best.toPoint, other.toPoint) > 650 || other.to.startsWith('stall:') && best.item === 'apples') continue;
+      if (!findFreightRoute(best.toPoint, other.toPoint, state.industry.roads)) continue;
+      const amount = Math.min(space, other.amount);
+      best.nextDrop = { to: other.to, toPoint: { x: other.toPoint.x, y: other.toPoint.y }, amount };
+      best.amount += amount;
+      break;
+    }
   }
   return best;
 }
@@ -318,56 +449,106 @@ function loadTractor(state, trip) {
     trip.amount = trip.baskets.length;
     return trip.amount > 0;
   }
+  const firstAmount = trip.amount - (trip.nextDrop?.amount ?? 0);
   const source = industrySite(state, trip.source);
-  if (trip.source === 'house') {
+  if (trip.source === 'house' || source?.kind === 'house') {
     const stall = state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
-    const reserve = trip.item === 'apples' ? stall?.reserve ?? 0 : 0;
-    trip.amount = Math.min(trip.amount, Math.max(0, stockCount(state, trip.item) - reserve));
-    adjustStock(state, trip.item, -trip.amount);
+    const reserve = trip.item === 'apples' && !source ? stall?.reserve ?? 0 : 0;
+    trip.amount = Math.min(trip.amount, Math.max(0, homeStock(state, source ?? HOUSE, trip.item) - reserve));
+    adjustStock(state, trip.item, -trip.amount, source ?? HOUSE);
   } else if (source?.kind === 'mine') {
-    trip.amount = Math.min(trip.amount, source.fuel);
-    source.fuel -= trip.amount;
+    trip.amount = Math.min(trip.amount, source[trip.item] ?? 0);
+    source[trip.item] -= trip.amount;
   } else if (source?.kind === 'workshop') {
     trip.amount = Math.min(trip.amount, source.output[trip.item] ?? 0);
     source.output[trip.item] = (source.output[trip.item] ?? 0) - trip.amount;
   } else return false;
+  if (trip.nextDrop) {
+    trip.nextDrop.amount = Math.max(0, trip.amount - firstAmount);
+    if (!trip.nextDrop.amount) delete trip.nextDrop;
+  }
   return trip.amount > 0;
 }
 
 function unloadTractor(state, trip, deposit, worker) {
+  if (industrySite(state, trip.source)?.kind === 'workshop') state.industry.firstWorkshopDelivery = true;
   if (trip.baskets) {
-    for (const cargo of trip.baskets) deposit(state, cargo, trip.source, worker);
+    for (const cargo of trip.baskets) deposit(state, cargo, trip.source, worker, homesFor(state).find(home => homeId(home) === trip.to) ?? (trip.toPoint && nearestHome(state, trip.toPoint)) ?? HOUSE);
     return;
   }
   const shop = state.industry.workshops.find(shop => shop.id === trip.to);
   const stall = state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
   if (shop) shop.inputs[trip.item] = (shop.inputs[trip.item] ?? 0) + trip.amount;
   else if (stall) stall.stock[trip.item] = (stall.stock[trip.item] ?? 0) + trip.amount;
-  else adjustStock(state, trip.item, trip.amount);
+  else adjustStock(state, trip.item, trip.amount, homesFor(state).find(home => homeId(home) === trip.to) ?? HOUSE);
 }
 
-function workerAt(state, site, worker, seconds) {
+function workerAt(state, site, worker, seconds, plan = (actor, target) => routeTo(actor, target, undefined, state.industry.roads)) {
   if (distance(worker, site) <= 1) {
     delete worker.industryRoute;
     return true;
   }
   const route = worker.industryRoute;
-  if (!route || route.x !== site.x || route.y !== site.y) worker.industryRoute = routeTo(worker, site, undefined, state.industry.roads);
+  if (!route || route.x !== site.x || route.y !== site.y) worker.industryRoute = plan(worker, site);
   if (!worker.industryRoute) return false;
   worker.stamina = Math.max(0, worker.stamina - seconds * .3);
   return followRoute(worker, worker.industryRoute, 85 + worker.stats.speed * 6, seconds, state.industry.roads);
 }
 
-export function advanceIndustry(state, seconds, deposit) {
+function movePorter(state, site, worker, seconds, walk) {
+  const cargo = worker.industryCargo;
+  if (cargo) {
+    if (cargo.siteId && cargo.siteId === site.id) {
+      if (walk(site, worker, seconds)) {
+        site.inputs[cargo.item] = (site.inputs[cargo.item] ?? 0) + cargo.amount;
+        delete worker.industryCargo;
+      }
+      return;
+    }
+    const home = homesFor(state).find(item => homeId(item) === cargo.homeId) ?? HOUSE;
+    if (walk(home, worker, seconds)) {
+      adjustStock(state, cargo.item, cargo.amount, home);
+      delete worker.industryCargo;
+    }
+    return;
+  }
+  if (state.industry.paused[site.id]) return;
+  const stock = site.kind === 'mine' ? { coal: site.coal, fuel: site.fuel } : site.output;
+  const item = Object.keys(stock).find(key => stock[key] > 0 && !state.industry.tractors.some(({ trip }) => trip?.source === site.id && trip.item === key && !trip.loaded));
+  if (item && walk(site, worker, seconds)) {
+    const output = site.kind === 'mine' ? site : site.output;
+    const amount = Math.min(output[item], 12 + worker.stats.strength * 2);
+    output[item] -= amount;
+    worker.industryCargo = { item, amount, homeId: homeId(nearestHome(state, site)) };
+    return;
+  }
+  if (site.kind !== 'workshop' || item || site.automatic === false) return;
+  const needs = { ...RECIPES[site.recipe].needs };
+  if (site.level === 3 && site.recipe !== 'fuel') needs.fuel = 2;
+  for (const [key, qty] of Object.entries(needs)) {
+    const need = qty * 2 - budget(state, site, key);
+    if (need <= 0) continue;
+    const home = nearestHome(state, site, key);
+    if (!home) continue;
+    if (walk(home, worker, seconds)) {
+      const amount = Math.min(need, homeStock(state, home, key), 12 + worker.stats.strength * 2);
+      adjustStock(state, key, -amount, home);
+      worker.industryCargo = { item: key, amount, siteId: site.id };
+    }
+    break;
+  }
+}
+
+export function advanceIndustry(state, seconds, deposit, plan) {
   if (!state.industry.unlocked) return;
+  const walk = (site, worker, elapsed) => workerAt(state, site, worker, elapsed, plan);
   const available = (role, site) => state.workers.find(worker => worker.siteId === site && worker.workRole === role
     && !state.jobs.some(job => job.workers.includes(worker.id)) && worker.sleepUntil === null && worker.stamina > 0);
   for (const shop of state.industry.workshops) {
     if (shop.batch?.until <= state.time) {
       const { key, method } = shop.batch;
-      const amount = RECIPES[key].amount + (state.upgrades.includes('largerBatches') ? 1 : 0);
-      if (method === 'manual') adjustStock(state, key, amount);
-      else shop.output[key] = (shop.output[key] ?? 0) + amount;
+      const amount = shop.batch.amount ?? RECIPES[key].amount + Number(state.upgrades.includes('largerBatches'));
+      shop.output[key] = (shop.output[key] ?? 0) + amount;
       if (GOODS[key].value && !state.industry.knownProducts.includes(key)) state.industry.knownProducts.push(key);
       if (method === 'manual') notify(state, `${GOODS[key].label} +${amount}.`, GOODS[key].icon);
       state.xpProgress += amount * 2;
@@ -376,25 +557,18 @@ export function advanceIndustry(state, seconds, deposit) {
     const buyer = available('buyer', shop.id);
     const jarsNeeded = RECIPES[shop.recipe].needs.jars ?? 0;
     if (buyer && jarsNeeded && stockCount(state, 'jars') + (shop.inputs.jars ?? 0) < jarsNeeded
-      && state.trade.coins >= 8 * JAR_PRICE && workerAt(state, nearestHome(state, shop), buyer, seconds)) {
-      industryActions.buyJars(state, {});
+      && state.trade.coins >= 8 * JAR_PRICE && walk(nearestHome(state, shop), buyer, seconds)) {
+      const home = nearestHome(state, shop);
+      state.trade.coins -= 8 * JAR_PRICE;
+      adjustStock(state, 'jars', 8, home);
       buyer.stamina = Math.max(0, buyer.stamina - 5);
     }
     const maker = available('maker', shop.id);
-    const waiting = Object.values(shop.output).reduce((sum, qty) => sum + qty, 0);
-    const pickup = state.industry.tractors.some(({ trip }) => trip?.source === shop.id);
-    if (maker && waiting && !pickup && (maker.industryDropoff || waiting >= 16 || !canCraft(state, shop, shop.recipe))) {
-      maker.industryDropoff = true;
-      if (workerAt(state, nearestHome(state, shop), maker, seconds)) {
-        industryActions.takeIndustryStock(state, { id: shop.id });
-        maker.industryDropoff = false;
-      }
-      continue;
-    }
-    if (maker) maker.industryDropoff = false;
-    if (shop.batch || waiting >= 48 || shop.automatic === false) continue;
+    const porter = available('porter', shop.id);
+    if (porter) movePorter(state, shop, porter, seconds, walk);
+    if (shop.batch || shop.automatic === false) continue;
     if (shop.level === 3) startBatch(state, shop, shop.recipe, 'factory');
-    else if (maker && workerAt(state, shop, maker, seconds) && startBatch(state, shop, shop.recipe, 'worker')) {
+    else if (maker && walk(shop, maker, seconds) && startBatch(state, shop, shop.recipe, 'worker')) {
       maker.stamina = Math.max(0, maker.stamina - RECIPES[shop.recipe].ms / 1000);
     }
   }
@@ -402,38 +576,48 @@ export function advanceIndustry(state, seconds, deposit) {
     const miner = available('miner', mine.id);
     if (mine.mineAt && mine.mineAt <= state.time) {
       mine.mineAt = null;
-      mine.coal += 3;
-      mine.refineAt = state.time + (state.upgrades.includes('coalKiln') ? 3000 : 4500);
+      mine.coal += 6 + 2 * tuning(mine, 'yield');
     }
-    if (mine.refineAt && mine.refineAt <= state.time) {
-      mine.coal -= 3;
-      mine.fuel += state.upgrades.includes('efficientFuel') ? 4 : 3;
-      mine.refineAt = null;
-    }
-    if (miner && mine.fuel && (mine.fuel >= 6 || stockCount(state, 'fuel') < 2) && !mine.refineAt && !mine.mineAt
-      && !state.industry.tractors.some(({ trip }) => trip?.source === mine.id)) {
-      if (workerAt(state, nearestHome(state, mine), miner, seconds)) industryActions.takeIndustryStock(state, { id: mine.id });
-    } else if (miner && !mine.refineAt && !mine.mineAt && workerAt(state, mine, miner, seconds)) {
-      industryActions.makeFuel(state, { id: mine.id });
+    const porter = available('porter', mine.id);
+    if (porter) movePorter(state, mine, porter, seconds, walk);
+    if (miner && !mine.mineAt && mine.coal + 6 + 2 * tuning(mine, 'yield') <= stationCapacity(mine)
+      && walk(mine, miner, seconds) && industryActions.mineCoal(state, { id: mine.id })) {
       miner.stamina = Math.max(0, miner.stamina - 6);
     }
   }
   for (const tractor of state.industry.tractors) {
     const driver = available('driver', tractor.id);
     if (!tractor.trip) {
-      if (!driver || !stockCount(state, 'fuel') || tractor.retryAt > state.time || !workerAt(state, tractor, driver, seconds)) continue;
+      if (!driver || state.industry.paused[tractor.id] || tractor.retryAt > state.time) continue;
+      if (!tractor.tank && !driver.fuelCan && distance(driver, tractor) > 1 && !driver.refueling) {
+        if (!walk(tractor, driver, seconds)) continue;
+      }
+      if (!tractor.tank && !driver.fuelCan) {
+        const home = nearestHome(state, tractor, 'fuel');
+        if (!home) continue;
+        driver.refueling = true;
+        if (!walk(home, driver, seconds)) continue;
+        driver.fuelCan = Math.min(4, homeStock(state, home, 'fuel'));
+        adjustStock(state, 'fuel', -driver.fuelCan, home);
+        delete driver.refueling;
+      }
+      if (!walk(tractor, driver, seconds)) continue;
+      if (driver.fuelCan) {
+        tractor.tank = (tractor.tank ?? 0) + driver.fuelCan;
+        delete driver.fuelCan;
+      }
       const trip = chooseDelivery(state, tractor);
       if (!trip) {
         tractor.retryAt = state.time + 2000;
         continue;
       }
-      adjustStock(state, 'fuel', -1);
+      tractor.tank--;
       tractor.trip = { ...trip, driverId: driver.id };
     }
     const trip = tractor.trip;
     const targetStall = state.trade.stalls.find(stall => `stall:${stall.id}` === trip.to);
     if (trip.to.startsWith('stall:') && !targetStall) {
-      const home = nearestHome(state, tractor);
+
       trip.to = 'house';
       trip.toPoint = { x: home.x, y: home.y };
     } else if (targetStall) trip.toPoint = { x: targetStall.x, y: targetStall.y };
@@ -441,7 +625,8 @@ export function advanceIndustry(state, seconds, deposit) {
     if (sourcePlot) trip.from = { ...sourcePlot.basket };
     const target = trip.loaded ? trip.toPoint : trip.from;
     if (trip.route.x !== target.x || trip.route.y !== target.y) {
-      const route = routeTo(tractor, target, undefined, state.industry.roads);
+      const planned = findFreightRoute(tractor, target, state.industry.roads);
+      const route = planned && routeTo(tractor, target, planned);
       if (!route) {
         if (trip.loaded) unloadTractor(state, { ...trip, to: 'house' }, deposit);
         tractor.trip = null;
@@ -455,12 +640,23 @@ export function advanceIndustry(state, seconds, deposit) {
     if (!arrived) continue;
     if (!trip.loaded && loadTractor(state, trip)) {
       trip.loaded = true;
-      trip.route = trip.loadedRoute;
+      const planned = findFreightRoute(tractor, trip.toPoint, state.industry.roads);
+      if (planned) trip.route = routeTo(tractor, trip.toPoint, planned);
+      else {
+        unloadTractor(state, { ...trip, to: 'house' }, deposit);
+        tractor.trip = null;
+      }
       continue;
     }
     if (trip.loaded) {
-      unloadTractor(state, trip, deposit, rider);
+      const next = trip.nextDrop;
+      unloadTractor(state, next ? { ...trip, amount: trip.amount - next.amount } : trip, deposit, rider);
       state.industry.deliveries++;
+      if (next) {
+        Object.assign(trip, next);
+        delete trip.nextDrop;
+        continue;
+      }
       if (rider) rider.stamina = Math.max(0, rider.stamina - 5);
     }
     tractor.trip = null;
@@ -474,16 +670,21 @@ const validStock = stock => stock && !Array.isArray(stock) && typeof stock === '
 
 export function validIndustry(industry) {
   return typeof industry.unlocked === 'boolean' && validQty(industry.wheatSeeds) && validQty(industry.deliveries)
-    && validStock(industry.stock) && Array.isArray(industry.knownProducts)
+    && validStock(industry.stock) && industry.priority && typeof industry.priority === 'object'
+    && !Array.isArray(industry.priority) && Object.values(industry.priority).every(value => [1, 2, 3].includes(value))
+    && industry.paused && typeof industry.paused === 'object' && !Array.isArray(industry.paused)
+    && Object.values(industry.paused).every(value => typeof value === 'boolean') && Array.isArray(industry.knownProducts)
     && industry.knownProducts.every(key => PRODUCED_GOODS.includes(key))
     && Object.entries(buildingGroups).every(([kind, group]) => Array.isArray(industry[group]) && industry[group].every(site => validPoint(site)
-      && typeof site.id === 'string' && site.kind === kind && validQty(site.number)))
+      && typeof site.id === 'string' && site.kind === kind && validQty(site.number) && (site.kind !== 'house' || site.stock === undefined || validStock(site.stock))))
     && industry.workshops.every(shop => [1, 2, 3].includes(shop.level) && Object.hasOwn(RECIPES, shop.recipe)
       && validStock(shop.inputs) && validStock(shop.output) && (!shop.batch
         || Object.hasOwn(RECIPES, shop.batch.key) && Number.isFinite(shop.batch.until)))
     && industry.mines.every(mine => validQty(mine.fuel) && validQty(mine.coal))
     && industry.tractors.every(tractor => !tractor.trip || (validPoint(tractor.trip.from) && validPoint(tractor.trip.toPoint)
       && typeof tractor.trip.to === 'string' && validQty(tractor.trip.amount)
+      && (!tractor.trip.nextDrop || typeof tractor.trip.nextDrop.to === 'string' && validPoint(tractor.trip.nextDrop.toPoint)
+        && validQty(tractor.trip.nextDrop.amount) && tractor.trip.nextDrop.amount <= tractor.trip.amount)
       && ['basket', ...Object.keys(GOODS)].includes(tractor.trip.item)
       && [tractor.trip.route, tractor.trip.loadedRoute].every(route => route?.points?.every(validPoint) && validQty(route.index))))
     && Array.isArray(industry.roads) && industry.roads.every(road => validPoint(road.from) && validPoint(road.to) && [1, 2].includes(road.level));

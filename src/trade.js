@@ -3,7 +3,7 @@ import { berryBounds, BERRY_ORCHARD, HOUSE, isBerryOrchard, isFieldCrop, isPurch
 import { distance, followRoute, routeTo } from './routes.js';
 import { regionAt, riverDistance, terrainKind, TRADE_GATES, TRADE_ROADS, WORLD } from './terrain.js';
 
-import { adjustStock, GOODS, incomingGoods, industryStations, PRODUCED_GOODS, stockCount } from './industry.js';
+import { adjustStock, GOODS, homeStock, incomingGoods, industryStations, nearestHome, PRODUCED_GOODS, stockCount } from './industry.js';
 import { demandScore, trafficLevel } from './siting.js';
 
 export const PERMIT_PRICE = 2500;
@@ -53,7 +53,7 @@ export const marketUpgradePrice = (stall, key) => Math.ceil(MARKET_UPGRADES[key]
 export const globalUpgradeLevel = (state, key) => state.trade.globalUpgrades?.[key] ?? 0;
 export const globalUpgradePrice = (state, key) => Math.ceil(GLOBAL_UPGRADES[key].base * 1.65 ** globalUpgradeLevel(state, key));
 export const globalUpgradeBonus = (state, key) => GLOBAL_UPGRADES[key].bonus * globalUpgradeLevel(state, key);
-export const orderPayment = (state, stall, order) => Math.floor(order.coins * (1 + stall.levels.value * .12 + globalUpgradeBonus(state, 'guild') + (state.upgrades?.includes('marketLedger') ? .08 : 0)));
+export const orderPayment = (state, stall, order) => Math.floor(order.coins * (1 + stall.levels.value * .12 + globalUpgradeBonus(state, 'guild') + (state.upgrades?.includes('marketLedger') ? .08 : 0) + (state.upgrades?.includes('trustedStall') ? .06 : 0)));
 export const frontCustomer = stall => stall.customers.find(customer => customer.phase === 'queue') ?? null;
 export const canServe = (stall, order) => !!order && goods.every(key => (stall.stock[key] ?? 0) >= (order[key] ?? 0));
 export const farmAvailable = state => (state.trade.berryKnown && state.trade.marketUpgrades >= 2) || Boolean(state.industry?.unlocked);
@@ -180,7 +180,7 @@ function revealBerries(state) {
   if (state.trade.berryKnown) return;
   state.trade.berryKnown = true;
   state.trade.wild = wildSites.map(([x,y],i) => ({ id: state.nextId++, x, y, fruit: 12 + i % 3 * 3, readyAt: 0 }));
-  explain(state, 'wildBerries', 'Агата просит ягоды! В дальнем лесу уже растут дикие кусты. Можно собрать ягоды самому или назначить ёжика на лесной сбор. Ягодник за монеты появится после двух улучшений лавки.');
+  explain(state, 'wildBerries', 'Покупатель просит ягоды! Дикие кусты растут в дальнем лесу. Собери ягоды сам или назначь ёжика на лесной сбор. После двух улучшений лавки можно купить ферму.');
 }
 
 function acceptCustomerOrder(state, customer) {
@@ -205,7 +205,12 @@ function spawnCustomer(state, stall, random) {
     const key = products[Math.floor(random(state) * products.length)];
     const amount = 3 + Math.floor(random(state) * 5);
     Object.assign(order, { apples: 0, berries: 0, [key]: amount, coins: 100 + amount * GOODS[key].value,
-      line: `Добрый день! Есть готовые продукты? Мой заказ — ${GOODS[key].label.toLowerCase()}.` });
+      line: [
+        `Добрый день! На этот раз возьму вот что: ${GOODS[key].label.toLowerCase()}.`,
+        `У нас сегодня будут гости. Запишите в заказ: ${GOODS[key].label.toLowerCase()}.`,
+        `Хочется взять гостинец в дорогу. Подойдёт ${GOODS[key].label.toLowerCase()}.`,
+        `В прошлый раз наготовили на славу. Сегодня заказываю: ${GOODS[key].label.toLowerCase()}.`,
+      ][state.nextId % 4] });
   }
   stall.customers.push({ id: state.nextId++, kind, ...TRADE_GATES[gate], gate, order, phase: 'walk',
     route: customerRoute(stall,gate) });
@@ -254,20 +259,24 @@ function restockAmount(state, stall, key, amount) {
   const reserved = state.jobs.filter(job => job.kind === 'restock' && job.stallId === stall.id && job.cargo).reduce((n, job) => n + job.cargo.amount, 0);
   return Math.min(Math.floor(amount), stallCapacity(stall) - marketStock(stall) - reserved - goods.reduce((sum, item) => sum + incomingGoods(state, `stall:${stall.id}`, item), 0), stockCount(state,key));
 }
+const supplyHome = (state, stall, key) => nearestHome(state, stall, key, key === 'apples' ? stall.reserve : 0);
 function automaticDemand(state, stall, key, worker) {
   const target = frontCustomer(stall)?.order[key] ?? (key === 'apples' ? 100 : 0);
   const incoming = state.jobs.filter(job => job.kind === 'restock' && job.stallId === stall.id && job.cargo?.key === key)
     .reduce((sum, job) => sum + job.cargo.amount, 0);
-  const inHouse = stockCount(state,key) - (key === 'apples' ? stall.reserve : 0);
+  const home = supplyHome(state, stall, key);
+  const inHouse = home ? homeStock(state, home, key) - (key === 'apples' && !home.id ? stall.reserve : 0) : 0;
   const capacity = 28 + worker.stats.strength * 8 + globalUpgradeBonus(state, 'harnesses') + (state.upgrades.includes('tradeCrates') ? 12 : 0) + (state.upgrades.includes('trailSatchels') ? 16 : 0);
   return restockAmount(state,stall,key,Math.min(target - (stall.stock[key] ?? 0) - incoming - incomingGoods(state, `stall:${stall.id}`, key),inHouse,capacity));
 }
 function completeSale(state, stall, customer) {
   if (frontCustomer(stall)?.id !== customer.id || !customer.order.accepted || !canServe(stall,customer.order)) return false;
-  for (const { key, quantity } of orderLines(customer.order)) stall.stock[key] -= quantity;
+  const items = orderLines(customer.order).map(({ key, quantity }) => ({ key, quantity }));
+  for (const { key, quantity } of items) stall.stock[key] -= quantity;
   const earned = orderPayment(state, stall, customer.order);
   state.trade.coins += earned;
   state.trade.sales++;
+  stall.recentSales = [{ id: customer.id, guest: customer.kind, items, earned }, ...(stall.recentSales ?? [])].slice(0, 5);
   leave(stall,customer);
   note(state, `Заказ выполнен. +${earned} монет.`);
   if (state.trade.sales === 1) explain(state, 'firstSale', 'Первая продажа! Монеты можно потратить на полки, вывеску и место для очереди. Продавец-ёжик тоже сможет принимать заказы.');
@@ -357,6 +366,13 @@ export function migrateTradeSites(state, plots) {
 export function migrateMarketProgress(state) {
   const { trade } = state;
   trade.globalUpgrades ??= {};
+  for (const stall of trade.stalls) {
+    if (stall.recentSales === undefined) continue;
+    stall.recentSales = Array.isArray(stall.recentSales) ? stall.recentSales.filter(sale => Number.isSafeInteger(sale?.id)
+      && Object.hasOwn(CUSTOMERS, sale.guest) && Number.isSafeInteger(sale.earned) && sale.earned >= 0
+      && Array.isArray(sale.items) && sale.items.every(item => goods.includes(item?.key)
+        && Number.isSafeInteger(item.quantity) && item.quantity > 0)).slice(0, 5) : [];
+  }
   trade.visitorsSeen ??= [...new Set([
     ...trade.uniqueSeen,
     ...trade.stalls.flatMap(stall => stall.customers.filter(customer => customer.phase !== 'walk').map(customer => customer.kind)),
@@ -418,7 +434,7 @@ function wildHarvest(state, patch, amount = patch?.fruit ?? 0) {
 export const tradeActions = {
   permit(state) {
     if (!state.unlocked || state.trade.permit || state.apples < PERMIT_PRICE || !state.orchards.some(orchard => orchard.id === 'forest')) return false;
-    state.apples -= PERMIT_PRICE;
+    adjustStock(state, 'apples', -PERMIT_PRICE);
     state.trade.permit = true;
     state.trade.stallCredits++;
     explain(state, 'permit', 'Разрешение куплено. Поставь первую лавку рядом с дорогой и прими заказ. Свободные ёжики принесут нужные плоды из дома. Можно назначить снабженца, чтобы он пополнял запасы заранее.');
@@ -587,7 +603,7 @@ export const tradeActions = {
   },
   buyWaterCan(state) {
     if (!state.trade.berryFarm || state.trade.largeCan || state.apples < 260) return false;
-    state.apples -= 260; state.trade.largeCan = true;
+    adjustStock(state, 'apples', -260); state.trade.largeCan = true;
     return true;
   },
   buyOrchardTrade(state, { orchardId, key }) {
@@ -596,7 +612,7 @@ export const tradeActions = {
     if (key === 'depot' && !perks.depot && state.trade.coins >= 210) {
       state.trade.coins -= 210; perks.depot = true;
     } else if (key === 'mulch' && !perks.mulch && state.trade.berries >= 90 && state.trade.berryFarm) {
-      state.trade.berries -= 90; perks.mulch = true;
+      adjustStock(state, 'berries', -90); perks.mulch = true;
     } else return false;
     state.trade.orchardPerks[orchardId] = perks;
     return true;
@@ -667,9 +683,9 @@ export function scheduleTrade(state, worker) {
   return null;
 }
 
-export function moveTradeJob(state, job, worker, stride, seconds, house, roads = []) {
+export function moveTradeJob(state, job, worker, stride, seconds, house, roads = [], plan = target => routeTo(worker, target, undefined, roads)) {
   const walk = target => {
-    if (!job.route || job.route.x !== target.x || job.route.y !== target.y) job.route = routeTo(worker,target,undefined,roads);
+    if (!job.route || job.route.x !== target.x || job.route.y !== target.y) job.route = plan(target);
     // A changed destination clears the job on a failed path so no worker stays pinned.
     return !job.route ? null : followRoute(worker,job.route,stride,seconds,roads);
   };
@@ -685,7 +701,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
     }
     const arrived = walk(house);
     if (arrived === false) return false;
-    state.trade.berries += job.amount;
+    adjustStock(state, 'berries', job.amount, house);
     note(state, `${worker.name} принёс дикие ягоды +${job.amount}.`, 'berry');
     return true;
   }
@@ -708,12 +724,14 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
   if (job.kind === 'restock') {
     if (job.phase === 'house') {
       if (job.commissionId !== undefined && frontCustomer(stall)?.id !== job.commissionId) return true;
-      const arrived = walk(house);
+      const source = supplyHome(state, stall, job.key);
+      if (!source) return true;
+      const arrived = walk(source);
       if (arrived !== true) return arrived === null;
       const amount = automaticDemand(state,stall,job.key,worker);
       if (amount <= 0) return true;
       job.cargo = { key:job.key, amount };
-      adjustStock(state,job.key,-amount);
+      adjustStock(state,job.key,-amount,source);
       job.phase = 'stall';
       return false;
     }

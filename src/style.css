@@ -135,6 +135,9 @@ svg { display: block; }
 .worker-card { border-top: 1px solid #93705f; padding: 4px 0; }
 .worker-row { display: flex; gap: 3px; align-items: center; }
 .worker-row > .square { flex: none; }
+.worker-row .worker-quick-action { flex: none; padding-inline: 5px; font-size: 11px; }
+.mystery-offer p { margin: 0 0 6px; }
+.game-shell:has(.placement-cells) .side-window.shop { visibility: hidden; }
 .worker-profile { border: 0; background: none; color: #f6dba9; padding: 0; flex: 1; min-width: 0; text-align: left; display: flex; align-items: center; gap: 6px; }
 .worker-profile > svg { width: 34px; flex: none; }
 .worker-profile span { overflow-wrap: anywhere; }
@@ -509,3 +512,16 @@ svg { display: block; }
 .sprinkler-range { position: absolute; transform: translate(-50%,-50%); border: 2px dashed #e8a579a8; border-radius: 50%; background: #e4a37426; pointer-events: none; }
 .sprinkler-range.allowed { border-color: #c0e4dfbe; background: #a6d2c226; }
 .basket-item[aria-disabled='true'] { cursor: default; }
+
+.crew-manager, .recruit-offer { border-block: 1px solid #9b7658; padding-block: 7px; margin-block: 6px; }
+.crew-manager summary { cursor: pointer; }
+.crew-selection { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); max-height: 120px; overflow: auto; }
+.crew-selection label { overflow-wrap: anywhere; display: flex; align-items: center; }
+.crew-manager input[type="checkbox"] { accent-color: #c99468; }
+.crew-manager input:not([type="checkbox"]) { display: block; max-width: 100%; font: inherit; color: var(--light); background: var(--ink); border: 1px solid var(--gold); }
+.recruit-offer > .hedge-sprite { width: 54px; display: inline-block; vertical-align: middle; }
+.recruit-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; }
+.recruit-stats span { display:flex; align-items:center; gap: 3px; }
+.recruit-stats svg { width: 20px; height: 20px; }
+.recruit-offer p { font-size: 12px; margin-top: 5px; }
+.camera-controls .map-extra { order: -1; }

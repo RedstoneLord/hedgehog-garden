@@ -6,6 +6,11 @@
 .market-left, .market-sidebar { display: grid; gap: 12px; align-content: start; }
 .market-guide { grid-column: 1/-1; display: grid; grid-template-columns: 65px 1fr auto; gap: 12px; align-items: center; padding: 13px; }
 .market-guide strong { display: block; color: #f2c87f; }
+.market-sales summary { cursor: pointer; }
+.market-sales ul { list-style: none; padding: 0; margin: 6px 0 0; }
+.market-sales li { border-top: 1px solid #ae7850; display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; padding: 6px 0; }
+.market-sales li > span:first-of-type { grid-row: 2; }
+.market-sales li > span:last-child { display: flex; align-items: center; gap: 4px; }
 .market-scene { width: 100%; min-width: 0; aspect-ratio: 1.7; min-height: 300px; overflow: hidden; position: relative; isolation: isolate; background: #6b8c79; border: 5px solid #af8058; box-shadow: 0 0 0 2px #27242d, inset 0 0 0 3px #584536; }
 .market-landscape, .market-scene-stall { position: absolute; width: 100%; height: 100%; }
 .market-landscape { inset: 0; }

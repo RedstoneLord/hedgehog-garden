@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ambienceUrl from './audio/orchard-ambience.mp3?inline';
-import musicUrl from './audio/calm-track.mp3?inline';
+import musicUrl from './audio/forget-me-not.mp3?inline';
 import chimeUrl from './audio/game-chime.wav?inline';
 import tapUrl from './audio/tap.mp3?inline';
 import basketUrl from './audio/basket.mp3?inline';
@@ -13,7 +13,7 @@ import chirpUrl from './audio/chirp.mp3?inline';
 
 const backgroundTracks = [
   { url: ambienceUrl, volume: .20 },
-  { url: musicUrl, volume: .10 },
+  { url: musicUrl, volume: .08 },
 ];
 
 const samples = {

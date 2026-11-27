@@ -122,7 +122,7 @@ test('paid helpers grow exponentially, stay unique and keep randomized appearanc
     assert.equal(game.apples, apples - cost);
     prices.push(cost);
   }
-  assert.deepEqual(prices, [150, 188, 235, 293, 367, 458, 573, 716]);
+  assert.deepEqual(prices, [150, 174, 202, 235, 272, 316, 366, 424]);
   assert.ok(new Set(game.workers.map(worker => worker.name)).size === game.workers.length);
   assert.ok(new Set(game.workers.map(worker => `${worker.quills}:${worker.skin}:${worker.pose}`)).size > 3);
   assert.ok(game.workers.every(worker => Object.values(worker.stats).length === 6 && Object.values(worker.stats).every(stat => stat >= 1 && stat <= 9)));
@@ -575,6 +575,7 @@ test('a reserved courier leaves the full basket in place until loading finishes'
   const tree = game.trees[0].id;
   game.orchards[0].ready.push({ red: 10, gold: 0 });
   game = until(game, state => state.jobs.some(job => job.phase === 'load'));
+  assert.equal(act(game, 'sendBasket'), game);
   assert.equal(act(game, 'harvest', { id: tree }), game);
   assert.equal(game.orchards[0].ready.length, 1);
   assert.equal(game.jobs[0].cargo, null);
@@ -583,6 +584,30 @@ test('a reserved courier leaves the full basket in place until loading finishes'
   game = act(game, 'harvest', { id: tree });
   assert.equal(fruitCount(game.orchards[0].fill), 5);
   assert.equal(game.apples, 0);
+});
+
+test('manual dispatch after hiring takes over an approaching courier without double delivery', () => {
+  let game = act({ ...newGame(71), apples: 100 }, 'unlock');
+  game.workers[0].x += 60;
+  game.orchards[0].ready.push({ red: 10, gold: 0 });
+  game = advance(game, 100);
+  assert.equal(game.jobs[0].phase, 'toBasket');
+  game = act(game, 'sendBasket');
+  assert.deepEqual(game.jobs.map(job => job.kind), ['manual']);
+  assert.equal(game.orchards[0].ready.length, 0);
+  game = until(importGame(JSON.stringify(game)), state => state.apples === 10);
+  assert.equal(tick(game, 5000).apples, 10);
+});
+
+test('late level rewards grow more slowly and preserve points already earned', () => {
+  const game = grow(newGame(71), near);
+  game.level = 100;
+  game.xp = 7_000;
+  game.xpProgress = nextLevelXp(game.level);
+  const advanced = advance(game, 100);
+  assert.equal(advanced.level, 101);
+  assert.equal(advanced.xp, 7_005);
+  assert.deepEqual(importGame(JSON.stringify(advanced)), advanced);
 });
 
 test('sprinklers can coexist, and moving a specific sprinkler is free', () => {
@@ -802,9 +827,9 @@ test('portable saves transfer game state and reject unrelated or incomplete JSON
   assert.equal(migrated?.workers[0].name, state.workers[0].name);
 });
 
-test('each paid hedgehog compounds the base hiring price by 25 percent before rounding', () => {
-  assert.equal(BALANCE.hireGrowth, 1.25);
-  assert.deepEqual([1, 2, 3, 4, 5].map(length => hirePrice({ workers: Array(length) })), [150, 188, 235, 293, 367]);
+test('each paid hedgehog compounds the base hiring price by 16 percent before rounding', () => {
+  assert.equal(BALANCE.hireGrowth, 1.16);
+  assert.deepEqual([1, 2, 3, 4, 5].map(length => hirePrice({ workers: Array(length) })), [150, 174, 202, 235, 272]);
 });
 
 test('the new orchard upgrade has a steeper entry price and rewards a full harvest', () => {
@@ -824,4 +849,22 @@ test('the new orchard upgrade has a steeper entry price and rewards a full harve
   const reopened = restoreGame(JSON.stringify(upgraded));
   assert.equal(upgradeStatus(reopened, 'orchardStewards'), 'done');
   assert.equal(reopened.xp, 0);
+});
+
+test('a persistent recruit preview matches the hire and a saved crew restores roles', () => {
+  let game = act({ ...newGame(32), apples: 8000 }, 'unlock');
+  game = act(game, 'previewRecruit');
+  const offer = game.recruitOffer;
+  assert.equal(act(game, 'previewRecruit'), game);
+  game = act(importGame(JSON.stringify(game)), 'recruit');
+  assert.equal(game.workers.at(-1).id, offer.id);
+  assert.deepEqual(game.workers.at(-1).stats, offer.stats);
+  assert.equal(game.recruitOffer, undefined);
+  const ids = game.workers.map(worker => worker.id);
+  game = act(game, 'assignCrew', { ids, place: 'west', role: 'haul' });
+  assert.ok(game.workers.every(worker => worker.workRole === 'haul'));
+  game = act(game, 'saveCrew', { ids, name: 'Возчики' });
+  game = act(game, 'assignCrew', { ids, place: 'west', role: 'collect' });
+  game = act(importGame(JSON.stringify(game)), 'assignCrew', { name: 'Возчики' });
+  assert.ok(game.workers.every(worker => worker.workRole === 'haul'));
 });

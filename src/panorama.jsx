@@ -113,12 +113,12 @@ export function usePanorama({ bounds, initial, fit = 'cover', onHover, onDrag, o
   };
 }
 
-export function PanoramaControls({ panorama, label, resetLabel, children }) {
+export function PanoramaControls({ panorama, label, resetLabel, onReset = panorama.reset, children }) {
   return <nav className="camera-controls" aria-label={`Масштаб и положение: ${label}`}>
     <button type="button" className="pixel-button square" aria-label="Отдалить" onClick={() => panorama.zoomAt(.8)}><Glyph name="minus"/></button>
     <output aria-label={`Масштаб: ${label}`}>{Math.round(panorama.zoom * 100)}%</output>
     <button type="button" className="pixel-button square" aria-label="Приблизить" onClick={() => panorama.zoomAt(1.25)}><Glyph name="plus"/></button>
-    <button type="button" className="pixel-button square center-control" aria-label={resetLabel} onClick={panorama.reset}><Glyph name="center"/></button>
+    <button type="button" className="pixel-button square center-control" aria-label={resetLabel} onClick={onReset}><Glyph name="center"/></button>
     {children}
   </nav>;
 }
