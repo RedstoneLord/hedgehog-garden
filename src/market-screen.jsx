@@ -1,3 +1,5 @@
+import { shelfRoom, shelfStock } from './market-storage.js';
+import { marketDemand } from './siting.js';
 import { ScientistPanel } from './research-screen.jsx';
 import { scientistStall } from './commission.js';
 import { GameSelect } from './game-select.jsx';
@@ -18,7 +20,7 @@ function deliveryStatus(state, stall, key, couriers, canDispatch) {
   const inTransit = trips.reduce((sum, job) => sum + (job.cargo?.amount ?? 0), 0) + incomingGoods(state, `stall:${stall.id}`, key);
   if (inTransit) return `${name} в пути · ${number.format(inTransit)}.`;
   if (trips.length) return `Ёжик идёт за товаром · ${name.toLowerCase()}.`;
-  if (marketStock(stall) >= stallCapacity(stall)) return 'Освободи место в лавке для доставки.';
+  if (!shelfRoom(state, stall, key)) return 'Освободи место в лавке для доставки.';
   if (stockCount(state, key) <= (key === 'apples' ? stall.reserve : 0)) return `Нужно пополнить склад · ${name.toLowerCase()}.`;
   if (!canDispatch) return 'Назначь снабженца или водителя трактора.';
   return `Товар ждёт доставки · ${name.toLowerCase()}.`;
@@ -36,6 +38,8 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
   const customer = frontCustomer(stall);
   const person = customer && CUSTOMERS[customer.kind];
   const order = customer?.order;
+  const demand = marketDemand(state, stall, stall.road, stall.id);
+  const berriesKnown = state.trade.berryKnown || stall.stock.berries > 0;
   const queued = stall.customers.filter(person => person.phase === 'queue').length;
   const traveling = stall.customers.filter(person => person.phase === 'walk').length;
   const staffed = state.workers.some(worker => worker.stallId === stall.id && worker.workRole === 'vendor');
@@ -97,7 +101,7 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
             </div>}
             {order.accepted && order.berries > (stall.stock.berries ?? 0) && state.trade.wild.length > 0 &&
               <button type="button" className="pixel-button mini" onClick={onFindBerries}><Glyph name="berry"/> Показать дикие ягоды</button>}
-          </> : <p className="market-help">Снабженцы возят запасы из дома. Свободные ёжики помогают после приёма заказа.</p>}
+          </> : <p className="market-help">Снабженцы пополняют запасы между заказами. Назначь снабженца в меню ёжиков.</p>}
         </section>
       </div>
       <div className="market-sidebar">
@@ -110,14 +114,18 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
           </li>)}</ul>
         </details>}
         <section className="market-box pixel-window" aria-label="Запасы лавки">
-          <h3>Запасы <small>{marketStock(stall)}/{stallCapacity(stall)}</small></h3>
+          <h3>Запасы</h3>
+          {demand.rivals.length > 0 && <p className="market-help">Соседних лавок · {demand.rivals.length} · Поток покупателей −{Math.round((1 - demand.competition) * 100)}%</p>}
           <div className="market-inventory">
             <span>Товар</span><span>Дома</span><span>В лавке</span>
-            <b><Glyph name="apple"/> Яблоки</b><span>{number.format(state.apples)}</span><span>{number.format(stall.stock.apples)}</span>
-            {state.trade.berryKnown && <><b><Glyph name="berry"/> Ягоды</b><span>{number.format(state.trade.berries)}</span><span>{number.format(stall.stock.berries)}</span></>}
+            <b><Glyph name="apple"/> Яблоки</b><span>{number.format(state.apples)}</span><span>{number.format(stall.stock.apples ?? 0)} / {stallCapacity(stall)}</span>
+            {berriesKnown && <><b><Glyph name="berry"/> Ягоды</b><span>{number.format(state.trade.berries)}</span><span>{number.format(stall.stock.berries ?? 0)} / {stallCapacity(stall)}</span></>}
             {state.industry.knownProducts.map(key => <div className="market-stock-line" key={key}><b><Glyph name={GOODS[key].icon}/> {GOODS[key].label}</b>
               <span>{number.format(stockCount(state, key))}</span><span>{number.format(stall.stock[key] ?? 0)}</span></div>)}
+            {state.industry.knownProducts.length > 0 && <div className="market-stock-line"><b>Отсек для продуктов</b><span/><span>{shelfStock(stall, 'products')} / {stallCapacity(stall)}</span></div>}
           </div>
+          <button type="button" className="pixel-button mini" aria-pressed={stall.stocking !== false}
+            onClick={() => act('toggleStallStocking')}>Пополнять запас между заказами</button>
           {marketStock(stall) > 0 && <div className="market-stock-actions">
             <button type="button" className="pixel-button mini" onClick={() => act('returnStock')}>Вернуть запас домой</button>
           </div>}

@@ -50,15 +50,16 @@ export const SHOP = {
 };
 
 export const STAT_INFO = {
-  speed: { label: 'Скорость', icon: 'speed', desc: 'Скорость ходьбы.' },
-  strength: { label: 'Сила', icon: 'strength', desc: 'Яблоки за поход к дереву и скорость с тяжёлой корзиной.' },
+  speed: { label: 'Скорость', icon: 'speed', desc: 'Скорость ходьбы и вождения трактора.' },
+  strength: { label: 'Сила', icon: 'strength', desc: 'Размер груза, скорость с тяжёлой корзиной и темп добычи угля.' },
   endurance: { label: 'Выносливость', icon: 'endurance', desc: 'Время работы до сна.' },
-  dexterity: { label: 'Ловкость', icon: 'dexterity', desc: 'Скорость сбора плодов.' },
-  handling: { label: 'Сноровка', icon: 'handling', desc: 'Скорость погрузки и разгрузки корзины.' },
-  foraging: { label: 'Поиск', icon: 'foraging', desc: 'Дальность обнаружения цветов и шанс найти редкий саженец в корзине.' },
+  dexterity: { label: 'Ловкость', icon: 'dexterity', desc: 'Скорость сбора урожая и работы в мастерской.' },
+  handling: { label: 'Сноровка', icon: 'handling', desc: 'Скорость погрузки, обслуживания покупателей и ремонта генераторов.' },
+  foraging: { label: 'Поиск', icon: 'foraging', desc: 'Поиск цветов, диких ягод и редких саженцев. Помогает исследователям.' },
 };
 export const WORK_ROLES = { auto: 'Сбор и доставка', collect: 'Собирать яблоки', haul: 'Возить корзины', scout: 'Искать цветы', restock: 'Снабжать лавку', vendor: 'Продавать', forage: 'Искать дикие ягоды', water: 'Поливать посевы', maker: 'Готовить продукты', buyer: 'Покупать банки', miner: 'Добывать уголь', porter: 'Возить грузы со станции', driver: 'Водить трактор', researcher:'Исследовать', operator:'Обслуживать генератор' };
 export const WORK_ROLE_ICONS = { auto: 'work', collect: 'apple', haul: 'basket', scout: 'flower', restock: 'fastBasket', vendor: 'coin', forage: 'berry', water: 'water', maker: 'table', buyer: 'jar', miner: 'fuel', porter: 'crate', driver: 'fastBasket', researcher:'table', operator:'fuel' };
+export const skilledWorkRate = (worker, stat, step) => 1 + Math.max(0, (worker?.stats?.[stat] ?? 5) - 5) * step;
 export const DEFAULT_STATS = Object.fromEntries(Object.keys(STAT_INFO).map(id => [id, 5]));
 
 export const emptyCargo = () => ({ red: 0, gold: 0 });

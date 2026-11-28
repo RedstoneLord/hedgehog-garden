@@ -88,3 +88,29 @@
 @media (prefers-reduced-motion: reduce) {
   [data-tutorial-highlight], .tutorial-plant-target, .guide-art .hedge-body, .guide-art .mouth-open { animation: none; }
 }
+
+.goals-toggle { position:absolute; top:0; left:46px; }
+.garden-goal-cue { pointer-events:auto; display:flex; align-items:center; gap:8px; max-width:100%; text-align:left; border:0; padding:9px 13px; }
+.garden-goal-cue:hover .garden-goal-count { color:#fff4cc; }
+.garden-goal-cue > .hedge-sprite { flex:none; width:33px; }
+.garden-goal-cue :is(strong,small) { display:block; }
+.garden-goal-cue small, .garden-goal-list small { color:#e5bf8d; }
+.garden-goal-count { display:flex; align-items:center; gap:4px; padding-left:5px; color:#ffc98a; }
+.garden-goals-screen { color:#ffe7be; background:radial-gradient(ellipse at 25% 0%, #534338, #2e2536 80%); }
+.garden-goals-body { width:min(100%,900px); margin:auto; padding:clamp(12px,4vw,28px); display:grid; gap:12px; }
+.goals-speaker { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:14px; }
+.goals-speaker .hedge-sprite { width:52px; flex:none; }
+.goals-speaker .pixel-button { margin-left:auto; }
+.garden-goals-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.45fr); align-items:start; gap:9px; }
+.garden-goal-list { display:grid; gap:5px; }
+.garden-goal-list .pixel-button { flex-direction:column; align-items:flex-start; text-align:left; gap:3px; padding:8px 10px; }
+.goal-details { display:grid; gap:10px; padding:16px; }
+.goal-details h3 { font-size:20px; color:#ffdb99; }
+.goal-details p { line-height:1.55; }
+.goal-details button { justify-self:start; }
+@media (max-width:799px) { .goals-toggle { top:46px; } }
+@media (max-width:560px) {
+  .garden-goals-layout { grid-template-columns:minmax(0,1fr); }
+  .garden-goal-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .garden-goal-cue { font-size:12px; }
+}

@@ -43,8 +43,8 @@
 .built-roads .paved-road line { stroke: #625c53; }
 .built-roads .paved-road line + line { stroke: #a49a84; stroke-dasharray: 22 5; }
 .built-roads .road-preview { stroke: #e4cc88; stroke-width: 17; stroke-dasharray: 20 12; }
-.placement-cells { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-.placement-cell { position: absolute; width: 108px; height: 108px; opacity: .35; transform: translate(-50%, -50%); }
+.placement-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.placement-overlay canvas { position: absolute; display:block; image-rendering:auto; }
 .farm-placement.allowed { border-color: var(--condition); background: color-mix(in srgb, var(--condition) 28%, transparent); }
 .site-preview { border-color: var(--condition); z-index: 6501; font-size: 18px; }
 .orchard-bound .soil-alert { pointer-events: auto; position: absolute; top: 26px; left: 6px; padding: 2px 5px; color: #ffd89a; background: #694843; }
@@ -140,3 +140,6 @@
   .research-toggle { padding-inline: 8px; }
   .research-toggle span { display: none; }
 }
+
+.market-reach { position:absolute; transform: translate(-50%, -50%); background: radial-gradient(closest-side, #bc582e47, #d87b4c15 68%, transparent); }
+.market-reach[data-competing=true] { background: radial-gradient(closest-side, #ee8a5662, #e77a4133 60%, transparent); }

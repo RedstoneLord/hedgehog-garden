@@ -1,5 +1,5 @@
 import { tintFoliage } from './terrain.js';
-import { HedgeSprite, HouseArt } from './art.jsx';
+import { HedgeSprite, HouseArt, StorageArt } from './art.jsx';
 
 export function MountainArt({ mine }) {
   return <svg viewBox="0 0 96 56" shapeRendering="crispEdges" aria-hidden="true">
@@ -37,6 +37,7 @@ export function WheatArt({ ripe, dry, point }) {
 
 export function IndustryArt({ site, driver, operator }) {
   if (site.kind === 'house') return <HouseArt/>;
+  if (site.kind === 'warehouse') return <StorageArt/>;
   if (site.kind === 'mine') return <div className={`mine-scene${site.mineAt ? ' mining' : ''}`}>
     <MountainArt mine/>
     {site.mineAt && operator && <HedgeSprite hedge={operator} className="mining-hedge"/>}

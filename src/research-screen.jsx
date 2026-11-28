@@ -217,7 +217,7 @@ export function PerkReveal({ state, event, dispatch }) {
   return <section className="perk-reveal" role="dialog" aria-modal="true" aria-label="Уникальный перк">
     <div className="perk-confetti" aria-hidden="true">{Array.from({length:18},(_,index) => <i key={index} style={{'--ray':index * 20 + 'deg','--wait':index % 5 * 68 + 'ms'}}/>)}</div>
     <div className="perk-award-hedge">{worker && <HedgeSprite hedge={worker}/>}</div>
-    <h2>{event.name ?? worker?.name} HAS EARNED THE {perk.name.toUpperCase()} PERK!</h2>
+    <h2>{event.name ?? worker?.name} ЗАРАБОТАЛ ПЕРК «{perk.name.toUpperCase()}»!</h2>
     <PerkIcon perk={event.perk} className="perk-award-icon"/>
     <p>{perkDescription(event.perk,availablePerkJobs(state,workplaces(state)))}</p>
     {worker?.pendingPerks?.includes(event.perk) && <div className="research-actions">

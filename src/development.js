@@ -31,7 +31,7 @@ export function chooseOffspring(state, first, second) {
   const a = workerPerks(first), b = workerPerks(second);
   const perks = [...new Set([...a,...b])].map(id => ({
     id, rank: draw(state),
-    eligible: draw(state) < (PERKS[id]?.tier === 'unique' ? .006 : a.includes(id) && b.includes(id) ? .6 : .28),
+    eligible: draw(state) < (PERKS[id]?.tier === 'unique' ? (id === 'orchardEye' ? .0012 : .006) : a.includes(id) && b.includes(id) ? .6 : .28),
   })).filter(item => item.eligible).sort((a,b) => a.rank-b.rank).slice(0,3).map(item => item.id);
   if (perks.length < 3 && draw(state) < .085) {
     const perk = rollPerk(draw(state)*100,draw(state));

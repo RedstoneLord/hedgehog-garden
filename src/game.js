@@ -191,15 +191,15 @@ const regrowthTime = (state, tree) => {
 };
 const flowerDuration = state => BALANCE.flowerDuration + (state.upgrades.includes('flower') ? 10000 : 0);
 const carryCapacity = (state, worker) => Math.max(1, 1 + Math.floor(worker.stats.strength / 3) + perkEffect(worker, 'carry') + Number(state.upgrades.includes('carry')));
-const staminaLimit = (state, worker) => Math.max(12, Math.round((28 + worker.stats.endurance * 8 + perkEffect(worker, 'stamina') + (state.upgrades.includes('longShift') ? 14 : 0)) * perkEffect(worker, 'endurance', 1)));
+const staminaLimit = (state, worker) => Math.max(12, Math.round((23 + worker.stats.endurance * 9 + perkEffect(worker, 'stamina') + (state.upgrades.includes('longShift') ? 14 : 0)) * perkEffect(worker, 'endurance', 1)));
 const harvestTime = (state, workers, variety) => {
   const dexterity = Math.max(...workers.map(worker => worker.stats.dexterity));
   const tools = variety === 'berry' ? 0 : globalUpgradeBonus(state, 'tools');
   const sorting = !isFieldCrop(variety) && state.upgrades.includes('fruitSorting') ? .9 : 1;
-  return 2200 * sorting / (1 + decorationBonus(state, workers[0], 'work')) * Math.min(...workers.map(worker => perkEffect(worker, 'harvest', 1))) * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .095) * (1 + tools));
+  return 2200 * sorting / (1 + decorationBonus(state, workers[0], 'work')) * Math.min(...workers.map(worker => perkEffect(worker, 'harvest', 1))) * (state.upgrades.includes('picking') ? .75 : 1) * (state.upgrades.includes('gardenCrew') ? .8 : 1) / ((1 + dexterity * .11) * (1 + tools));
 };
-const loadingTime = worker => 1800 / (1 + worker.stats.handling * .075);
-const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .67 + worker.stats.strength * .027) * (state.upgrades.includes('paving') ? 1.22 : 1) * perkEffect(worker,'haul',1);
+const loadingTime = worker => 1800 / (1 + worker.stats.handling * .087);
+const basketSpeed = (state, worker) => speed(state, worker) * Math.min(.98, .645 + worker.stats.strength * .032) * (state.upgrades.includes('paving') ? 1.22 : 1) * perkEffect(worker,'haul',1);
 
 function upgradeDiscovered(state, gate) {
   switch (gate) {
@@ -554,24 +554,20 @@ const actions = {
     return true;
   },
   assignCrew(state, { ids, place, role, name }) {
-    const saved = state.crews?.find(crew => crew.name === name);
-    const members = saved?.members ?? (Array.isArray(ids) ? [...new Set(ids)].map(id => ({ id, place, role })) : []);
-    if (!members.length) return false;
-    let assigned = 0, pending = 0;
-    for (const member of members) {
-      const worker = state.workers.find(item => item.id === member.id);
-      const target = workplaces(state).find(item => item.id === member.place);
-      if (!worker || worker.retirePending || !target?.roles.includes(member.role)) continue;
-      if (worker.train || worker.pairing || worker.industryCargo || worker.fuelCan || worker.powerCargo
-        || state.jobs.some(job => job.workers.includes(worker.id)) || state.industry.workshops.some(site => site.batch?.workerId === worker.id) || state.industry.tractors.some(tractor => tractor.trip?.driverId === worker.id)) {
+    const plan = crewAssignmentPlan(state, { ids, place, role, name });
+    if (!plan.rows.length) return false;
+    let assigned = 0, pending = 0, unchanged = 0;
+    for (const { member, worker, status } of plan.rows) {
+      if (status === 'unchanged') { unchanged++; continue; }
+      if (status === 'skip') continue;
+      if (status === 'pending') {
         worker.pendingAssignment = { ...member };
         pending++;
-        continue;
-      }
-      if (applyPresetAssignment(state,member)) assigned++;
+      } else if (applyPresetAssignment(state,member)) assigned++;
     }
-    if (saved?.favorites) state.favorites = saved.favorites.filter(id => state.workers.some(worker => worker.id === id)).slice(0,groupCapacity(state));
-    notice(state, `Назначено ${assigned}. После работы: ${pending}. Пропущено ${members.length-assigned-pending}.`, 'group');
+    if (plan.favorites) state.favorites = plan.favorites;
+    notice(state, [`Назначено ${assigned}`, pending && `После текущей работы ${pending}`,
+      unchanged && `Уже на месте ${unchanged}`, plan.rows.length > assigned + pending + unchanged && `Пропущено ${plan.rows.length-assigned-pending-unchanged}`].filter(Boolean).join(' · '), 'group');
     return true;
   },
   recruit(state, { orchardId = START_ORCHARD }) {
@@ -734,11 +730,37 @@ const actions = {
   },
 };
 
+export function crewAssignmentPlan(state, { ids, place, role, name }) {
+  const saved = state.crews?.find(crew => crew.name === name);
+  const members = saved?.members ?? (Array.isArray(ids) ? [...new Set(ids)].map(id => ({ id, place, role })) : []);
+  const places = new Map(workplaces(state).map(target => [target.id, target]));
+  const workers = new Map(state.workers.map(worker => [worker.id, worker]));
+  const busy = new Set([...state.jobs.flatMap(job => job.workers),
+    ...state.industry.workshops.map(site => site.batch?.workerId), ...state.industry.tractors.map(site => site.trip?.driverId)]);
+  const occupied = new Map(state.workers.filter(worker => worker.siteId).map(worker => [worker.siteId,worker.id]));
+  const rows = members.map(member => {
+    const worker = workers.get(member.id);
+    const target = places.get(member.place);
+    const single = ['tractor','lab','generator'].includes(target?.kind);
+    if (!worker || worker.retirePending || !target?.roles.includes(member.role)
+      || single && occupied.has(target.id) && occupied.get(target.id) !== worker.id) return { member, worker, target, status:'skip' };
+    if (single) occupied.set(target.id, worker.id);
+    if (workerWorkplace(worker) === member.place && worker.workRole === member.role && !worker.stayAt && !worker.pendingAssignment) {
+      return { member, worker, target, status:'unchanged' };
+    }
+    const waiting = worker.train || worker.pairing || worker.industryCargo || worker.fuelCan || worker.powerCargo || busy.has(worker.id);
+    return { member, worker, target, status:waiting ? 'pending' : 'now' };
+  });
+  const favorites = saved?.favorites?.filter(id => workers.has(id)).slice(0,groupCapacity(state));
+  return { rows, favorites };
+}
+
 function applyPresetAssignment(state,member) {
   const worker = state.workers.find(item => item.id === member.id);
   const target = workplaces(state).find(item => item.id === member.place);
   if (!worker || !target?.roles.includes(member.role)) return false;
   if (workerWorkplace(worker) !== member.place && !actions.assignWorkplace(state,member)) return false;
+  delete worker.pendingAssignment;
   delete worker.stayAt;
   if (worker.workRole !== member.role) actions.assignRole(state,member);
   return true;
@@ -755,10 +777,10 @@ export function act(state, action, fields = {}) {
 function speed(state, worker) {
   const favorite = state.favorites.includes(worker.id) ? BALANCE.favoriteBoost : 1;
   const pace = state.upgrades.includes('pace') ? 1.18 : 1;
-  return BALANCE.stride * movementPerks(state,worker) * (1 + (worker.stats.speed - 5) * .045) * favorite * pace * (1 + globalUpgradeBonus(state, 'boots'));
+  return BALANCE.stride * movementPerks(state,worker) * (1 + (worker.stats.speed - 5) * .052) * favorite * pace * (1 + globalUpgradeBonus(state, 'boots'));
 }
 
-export const flowerDetection = (worker, state) => 70 + worker.stats.foraging * 18 + perkEffect(worker, 'detect') + (state?.upgrades.includes('keenScent') ? 45 : 0);
+export const flowerDetection = (worker, state) => 70 + worker.stats.foraging * 20 + perkEffect(worker, 'detect') + (state?.upgrades.includes('keenScent') ? 45 : 0);
 
 export function workerCharacteristics(state, worker) {
   return { speed: speed(state, worker), carry: carryCapacity(state, worker), trips: worker.trips ?? 0,
@@ -1009,7 +1031,7 @@ function assignJobs(state, seconds) {
     }
     if (worker.sleepUntil === null && worker.stamina <= 0) {
       if (INDUSTRY_ROLES.includes(worker.workRole)) {
-        const home = nearestHome(state, industrySite(state, worker.siteId) ?? worker);
+        const home = nearestHome(state, industrySite(state, worker.siteId) ?? worker, undefined, 0, true);
         if (distance(home, worker) <= 1) startSleep(state, worker);
         else {
           if (!worker.restRoute || worker.restRoute.x !== home.x || worker.restRoute.y !== home.y) worker.restRoute = routeTo(worker, home, undefined, state.industry.roads);
@@ -1077,6 +1099,7 @@ function assignJobs(state, seconds) {
       }
     }
   }
+
 }
 
 export function advance(state, elapsed) {

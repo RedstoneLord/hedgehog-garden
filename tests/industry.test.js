@@ -283,6 +283,7 @@ test('crafting perks carry from workshops into optional factory tuning and respe
   const siteId = state.industry.workshops[0].id;
   state = act(state,'assignWorkplace',{id,place:siteId});
   Object.assign(state.workers[0],workshop,{perks:['steady','batchMaster']});
+  state.workers[0].stats.dexterity = 5;
   state.industry.workshops[0].inputs.apples = 48;
   state = advance(state,85);
   let shop = state.industry.workshops[0];
@@ -317,6 +318,7 @@ test('mining perks are applied at the start and survive a rest or reload before 
   const id = state.workers[0].id;
   state = act(state,'assignWorkplace',{id,place:siteId});
   Object.assign(state.workers[0],COAL_SITES[1],{perks:['iron','stoneListener'],stamina:1});
+  state.workers[0].stats.strength = 5;
   state = advance(state,85);
   assert.equal(state.industry.mines[0].mineAt - state.time,6750);
   assert.equal(state.industry.mines[0].pendingCoal,8);

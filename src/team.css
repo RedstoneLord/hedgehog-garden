@@ -1,0 +1,30 @@
+.team-screen { color:#f7e1b3; background: radial-gradient(ellipse at 50% 0%,#514155,#261f30 75%); }
+.team-body { width:min(100%,1130px); margin:auto; padding:clamp(13px,3vw,28px); display:grid; gap:12px; }
+.team-layout { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(260px,1fr); gap:12px; align-items:start; }
+.team-side, .team-panel { display:grid; gap:12px; align-content:start; min-width:0; }
+.team-panel { padding:15px; }
+.team-panel[tabindex] { scroll-margin-top: 78px; }
+.team-panel h3 { font-size:18px; color:#ffdfa2; }
+.team-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.team-panel label:not(.team-worker) { display:grid; gap:4px; }
+.team-panel input:not([type=checkbox]) { width:100%; min-height:36px; border:2px solid #996e63; background:#322739; color:#fff0ce; padding:5px 8px; font:inherit; }
+.team-actions, .team-counts { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.team-result { padding:8px 12px; background:#445947; color:#f6efb8; }
+.team-roster { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,165px),1fr)); gap:5px; }
+.team-worker, .team-preset { display:flex; gap:8px; align-items:center; justify-content:space-between; border:1px solid #936f67; padding:8px; background:#4e3b50; min-width:0; }
+.team-worker { cursor:pointer; justify-content:flex-start; min-height:46px; }
+.team-worker:has(input:checked) { outline:2px solid #d8b579; outline-offset:-3px; background:#6c514b; }
+.team-worker input { accent-color:#e8bd78; flex:none; }
+.team-worker .hedge-sprite { width:29px; flex:none; }
+.team-worker small, .team-preset small { color:#e4c59e; display:block; overflow-wrap:anywhere; }
+.team-preset { flex-wrap:wrap; }
+.team-counts span { background:#715648; padding:4px 7px; }
+.team-preview ul { margin:0; padding-left:18px; }
+.team-launchers { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-block:5px; }
+.team-launchers .pixel-button { justify-content:center; line-height:1.15; }
+@media (max-width: 720px) {
+  .team-layout { grid-template-columns:minmax(0,1fr); }
+  .team-side { order:-1; }
+  .team-layout:has(.team-worker) .team-side { order:initial; }
+  .team-panel .pixel-button { min-height:38px; }
+}

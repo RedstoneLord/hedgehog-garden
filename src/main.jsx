@@ -15,24 +15,27 @@ import { Tooltip, TooltipProvider } from './tooltip.jsx';
 import { basketLimit, berryBounds, EAST_ORCHARD, FOREST_ORCHARD, fruitCount, HOUSE, isBerryOrchard, isFieldCrop, isPurchasedGarden, orchardName, SHOP, shopLevel, shopPrice, SPRINKLER_LIMIT, SPRINKLER_RADIUS, sprinklerPrice, START_ORCHARD, STOREHOUSE, VARIETIES, WORK_ROLE_ICONS } from './orchard.js';
 import { CUSTOMERS } from './customers.js';
 import { distance } from './routes.js';
-import { farmAvailable, farmSite, GLOBAL_UPGRADES, globalUpgradeLevel, globalUpgradePrice, landFootprint, landPrice, landSite, marketSite, MOVE_FARM_PRICE, PERMIT_PRICE, stallDemand, stallById, stallPrice } from './trade.js';
+import { farmAvailable, farmSite, GLOBAL_UPGRADES, globalUpgradeLevel, globalUpgradePrice, landFootprint, landPrice, landSite, marketSite, MOVE_FARM_PRICE, PERMIT_PRICE, stallById, stallPrice } from './trade.js';
 import { BerryBushArt, CustomerSprite, MarketStallArt } from './trade-art.jsx';
 import { MarketScreen } from './market-screen.jsx';
 import { BUILDINGS, buildingSite, COAL_SITES, GOODS, housingCapacity, industryStations } from './industry.js';
 import { IndustryArt, MountainArt, WheatArt } from './industry-art.jsx';
 import { IndustryScreen } from './industry-screen.jsx';
-import { soilRate } from './siting.js';
+import { marketDemand, soilRate } from './siting.js';
 import { useGameAudio } from './sound.js';
-import { GameSelect } from './game-select.jsx';
 import { ProfileGlyph } from './profile-art.jsx';
 import { PerkIcon } from './perk-art.jsx';
 import { perkDescription, PERK_TIERS } from './perks.js';
 import { availablePerkJobs, JobAdvice } from './job-advice.jsx';
+import { TeamScreen } from './team-screen.jsx';
 import { MainMenu } from './main-menu.jsx';
 import { PICNIC_SPOT, PicnicScene } from './picnic.jsx';
 import { LodgePanel, PerkReveal, ResearchScreen, ResearchStationArt } from './research-screen.jsx';
 import { researchUnlocked, scientistReady, scientistStall } from './commission.js';
 import { gridPlacement, hasResearch, powerNetworks, RESEARCH_BUILDINGS, researchBuildSite, researchSites, stationLabel } from './research.js';
+import { PlacementOverlay } from './placement-overlay.jsx';
+import { gardenGoals } from './garden-goals.js';
+import { GardenGoalCue, GardenGoalsScreen } from './garden-goals-screen.jsx';
 import { beginnerTask, STOCK_LESSON } from './tutorial.js';
 import './style.css';
 import './industry.css';
@@ -344,18 +347,10 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
   const site = ghost && tradePlacement && (mode === 'market' ? marketSite(state, hover, placementPlots, movingStall)
     : mode === 'garden' || mode === 'moveGarden' ? landSite(state, hover, placementPlots, previousPlot) : farmSite(state, hover, placementPlots, mode === 'moveFarm', orchardId));
   const buildSite = ghost && eligibleBuilding && buildingSite(state, building, hover, placementPlots);
-  const rating = !site ? 0 : mode === 'market' ? stallDemand(state, hover, movingStall)
+  const rating = !site ? 0 : mode === 'market' ? site.demand
     : soilRate(site, activePlots.filter(plot => plot !== previousPlot));
+  const marketPreview = site && mode === 'market' ? marketDemand(state, site, site.road, movingStall) : null;
   const color = conditionColor(rating);
-  const overlayCenter = hover ?? panorama.centerPoint;
-  const previewCells = tradePlacement ? Array.from({ length: 63 }, (_, i) => {
-    const point = { x: Math.floor(overlayCenter.x / 110) * 110 + (i % 9 - 4) * 110,
-      y: Math.floor(overlayCenter.y / 110) * 110 + (Math.floor(i / 9) - 3) * 110 };
-    const neighbors = activePlots.filter(plot => plot !== previousPlot);
-    const available = mode === 'market' ? marketSite(state, point, placementPlots, movingStall) : landSite(state, point, placementPlots, previousPlot);
-    const score = available ? mode === 'market' ? stallDemand(state, point, movingStall) : soilRate(available, neighbors) : 0;
-    return <div key={i} className="placement-cell" style={{ ...xy(point), backgroundColor: conditionColor(score) }}/>;
-  }) : null;
   const placingSprinkler = mode === 'sprinkler';
   const valid = ghost && (planting ? canPlant(state, hover, variety) : placingSprinkler ? canPlaceSprinkler(state, hover, orchardId, sprinklerId) : canMoveBasket(state, hover, orchardId));
   return <>
@@ -385,7 +380,8 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
             <circle className="research-range" cx={hover.x} cy={hover.y} r={researchBuilding === 'pump' ? hasResearch(state,'wideSpray') ? 215 : 155 : ['sign','square','lamp'].includes(researchBuilding) ? 265 : researchBuilding === 'shelter' ? 230 : gridPlan?.coverage ?? 290}/>}
           {roadStart && hover && <line className="road-preview" x1={roadStart.x} y1={roadStart.y} x2={hover.x} y2={hover.y}/>}
         </svg>
-        {previewCells && <div className="placement-cells" aria-hidden="true">{previewCells}</div>}
+        {tradePlacement && <PlacementOverlay state={state} mode={mode} plots={placementPlots} gardens={activePlots}
+          movingPlot={previousPlot} movingStall={movingStall} rivals={marketPreview?.rivals}/>}
         {state.orchards.map(orchard => {
           const bounds = plotBounds(state, orchard.id);
           const soil = soilRate(bounds, activePlots);
@@ -417,7 +413,7 @@ function OrchardMap({ state, mode, orchardId, sprinklerId, movingStall, selected
         {ghost && mode === 'market' && <div className={`market-placement stall-placement plant-preview${site ? ' allowed' : ''}`} style={xy(hover)}><MarketStallArt/></div>}
         {ghost && placingLand && <div className={`market-placement farm-placement${site ? ' allowed' : ''}`} style={{ ...rect(site ?? landFootprint(hover)), '--condition': color }}/>}
         {ghost && tradePlacement && <span className="site-preview" style={{ ...xy(hover), '--condition': color }}>{!site ? 'Здесь нельзя строить'
-          : mode === 'market' ? `Спрос ${Math.round(rating * 100)}% · ${trafficLabel[site.traffic]}`
+          : mode === 'market' ? `Спрос ${Math.round(rating * 100)}% · ${trafficLabel[site.traffic]}${marketPreview?.rivals.length ? ` · соседние лавки −${Math.round((1-marketPreview.competition)*100)}%` : ''}`
             : plotWarning(rating)}</span>}
         {ghost && researchBuilding && <div className={`plant-preview industry-ghost ${researchPlacement ? 'allowed' : ''}`} style={xy(hover)}>
           <ResearchStationArt kind={researchBuilding}/>
@@ -615,29 +611,11 @@ function Shop({ state, dispatch, mode, setMode, orchard, clearOrchard, sprinkler
   </>;
 }
 
-function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchardId, tutorialTarget }) {
+function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchardId, tutorialTarget, onTeam }) {
   const capacity = groupCapacity(state);
   const places = workplaces(state);
   const [editor, setEditor] = useState(null);
   const editorButton = useRef(null);
-  const [selected, setSelected] = useState([]);
-  const [crewName, setCrewName] = useState('');
-  const [destination, setDestination] = useState(null);
-  const [crewRole, setCrewRole] = useState(null);
-  const [search, setSearch] = useState('');
-  const [siteFilter, filterSite] = useState('all');
-  const [roleFilter, filterRole] = useState('all');
-  const [statusFilter, filterStatus] = useState('all');
-  const [apply, confirmApply] = useState(null);
-  const [renaming, renamePreset] = useState(null);
-  const applyPlace = places.find(place => place.id === apply?.place);
-  const roster = state.workers.filter(worker => (!search.trim() || worker.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
-    && (siteFilter === 'all' || workerWorkplace(worker) === siteFilter) && (roleFilter === 'all' || worker.workRole === roleFilter)
-    && (statusFilter === 'all' || statusFilter === 'busy' && (worker.train || worker.pairing || worker.pendingAssignment)
-      || statusFilter === 'favorites' && state.favorites.includes(worker.id)));
-  const availableIds = roster.map(worker => worker.id);
-  const target = places.find(place => place.id === destination) ?? places[0];
-  const role = target.roles.includes(crewRole) ? crewRole : target.roles[0];
   const recruit = state.recruitOffer;
   const perk = PERKS[recruit?.perk];
 
@@ -659,43 +637,12 @@ function WorkerList({ state, dispatch, onInspect, onAssign, assigningId, orchard
           onClick={() => dispatch('favorite', { id: worker.id })}>{worker ? <HedgeSprite hedge={worker}/> : <Glyph name="plus"/>}</button>;
       })}
     </div>
-    <details className="crew-manager">
-      <summary>Управление и сохранённые назначения</summary>
-      <div className="worker-options">
-        <label>Имя ёжика <input value={search} onChange={event => setSearch(event.target.value)}/></label>
-        <GameSelect label="Фильтр по месту" value={siteFilter} options={[{value:'all',label:'Все места'},...places.map(place => ({value:place.id,label:place.label}))]} onChange={filterSite}/>
-        <GameSelect label="Фильтр по работе" value={roleFilter} options={[{value:'all',label:'Любая работа'},...Array.from(new Set(state.workers.map(worker => worker.workRole)), role => ({value:role,label:workRoleLabel(null,role)}))]} onChange={filterRole}/>
-        <GameSelect label="Фильтр по статусу" value={statusFilter} options={[{value:'all',label:'Все статусы'},{value:'busy',label:'Заняты или ждут перевода'},{value:'favorites',label:'Избранные'}]} onChange={filterStatus}/>
-        <button type="button" className="pixel-button mini" disabled={!availableIds.length} onClick={() => setSelected([...new Set([...selected,...availableIds])])}>Выбрать видимых · {availableIds.length}</button>
-        <div className="crew-selection">{roster.map(worker => <label key={worker.id}>
-          <input type="checkbox" checked={selected.includes(worker.id)}
-            onChange={() => setSelected(current => current.includes(worker.id) ? current.filter(id => id !== worker.id) : [...current, worker.id])}/>
-          {worker.name}
-        </label>)}</div>
-        <GameSelect label="Куда направить" value={target.id} options={places.map(place => ({ value: place.id, label: place.label }))} onChange={setDestination}/>
-        <GameSelect label="Работа команды" value={role} options={target.roles.map(value => ({ value, label: workRoleLabel(target.id, value, target) }))} onChange={setCrewRole}/>
-        <button type="button" className="pixel-button mini crew-apply" disabled={!selected.length}
-          onClick={() => confirmApply({ids:[...selected],place:target.id,role})}>Проверить назначение · {selected.length}</button>
-        <label>Имя набора <input value={crewName} maxLength={24} onChange={e => setCrewName(e.target.value)}/></label>
-        <button type="button" className="pixel-button mini" disabled={!crewName.trim()} onClick={() => dispatch('saveCrew', { name:crewName })}>Сохранить назначения и кучку</button>
-        {state.crews?.map(crew => <div className="preset-row" key={crew.name}>
-          <button type="button" className="pixel-button mini" onClick={() => confirmApply({name:crew.name})}>{crew.name} · {crew.members.length}</button>
-          <button type="button" className="pixel-button mini square" aria-label={`Переименовать ${crew.name}`} onClick={() => renamePreset(crew.name)}><Glyph name="edit"/></button>
-          <button type="button" className="pixel-button mini square" aria-label={`Удалить набор ${crew.name}`} onClick={() => dispatch('removePreset',{name:crew.name})}><Glyph name="close"/></button>
-          {renaming === crew.name && <form onSubmit={event => { event.preventDefault(); dispatch('renamePreset',{name:crew.name,next:new FormData(event.currentTarget).get('name')}); renamePreset(null); }}>
-            <input name="name" defaultValue={crew.name} aria-label="Новое имя набора" required maxLength={24}/><button type="submit" className="pixel-button mini">Сохранить</button>
-          </form>}
-        </div>)}
-        {apply && <section className="research-card" aria-label="Проверка назначения">
-          <p>{apply.name ? `Вернуть назначения из «${apply.name}»?` : `${apply.ids.length} ёж. · ${applyPlace?.label} · ${workRoleLabel(apply.place,apply.role,applyPlace)}`}</p>
-          <p>Занятые ёжики сменят работу, когда освободятся.</p>
-          <button type="button" className="pixel-button mini" onClick={() => { dispatch('assignCrew',apply); confirmApply(null); }}>Применить</button>{' '}
-          <button type="button" className="pixel-button mini" onClick={() => confirmApply(null)}>Отмена</button>
-        </section>}
-      </div>
-    </details>
+    {state.workers.length > 0 && <nav className="team-launchers" aria-label="Команда">
+      <button type="button" className="pixel-button mini" onClick={() => onTeam('assign')}>{icon('hedgePair','Назначить группу')}</button>
+      <button type="button" className="pixel-button mini" onClick={() => onTeam('presets')}>{icon('save','Наборы')}</button>
+    </nav>}
     <LodgePanel state={state} dispatch={dispatch} guided={tutorialTarget === 'lodge'}/>
-    {roster.map(worker => {
+    {state.workers.map(worker => {
       const favorite = state.favorites.includes(worker.id);
       const kind = editor?.id === worker.id ? editor.kind : null;
       const place = places.find(item => item.id === workerWorkplace(worker));
@@ -866,6 +813,11 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
   const [focusPoint, setFocusPoint] = useState(null);
   const [industry, setIndustry] = useState(null);
   const [research, openResearch] = useState(null);
+  const [team, openTeam] = useState(null);
+  const [goalsOpen, openGoals] = useState(false);
+  const [pinGoal, setPinGoal] = useState(() => {
+    try { return localStorage.getItem('orchard-hide-goal') !== '1'; } catch { return true; }
+  });
   const researchOpen = researchUnlocked(state);
   const [roadStart, setRoadStart] = useState(null);
   const [error, setError] = useState(null);
@@ -883,7 +835,9 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
   const plantingTree = Boolean(plantingVariety[mode]);
   const placingSprinkler = mode === 'sprinkler';
   const beginner = beginnerTask(state);
-  const otherDialog = Boolean(market || industry || research || treeOpen || saveOpen);
+  const goals = gardenGoals(state);
+  const showGoal = !beginner && !mode && pinGoal && goals.length > 0;
+  const otherDialog = Boolean(market || industry || research || treeOpen || saveOpen || team || goalsOpen);
   const reveal = !otherDialog && state.perkReveals?.[0];
   const chapter = beginner && state.apples > 0 && state.apples < beginner.goal && !acknowledged.includes(STOCK_LESSON.id)
     ? STOCK_LESSON : beginner?.chapter;
@@ -1040,7 +994,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
 
   useEffect(() => {
     const hotkey = event => {
-      if (reading || !active || mode === 'assign' || treeOpen || saveOpen || marketId !== null || industry || research || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.code !== 'KeyP') return;
+      if (reading || !active || mode === 'assign' || treeOpen || saveOpen || marketId !== null || industry || research || team || goalsOpen || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.code !== 'KeyP') return;
       if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.matches('input, textarea, select, [role="combobox"], [role="option"]'))) return;
       if (!state.seeds && !state.goldSeeds) return;
       event.preventDefault();
@@ -1049,7 +1003,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
     };
     window.addEventListener('keydown', hotkey);
     return () => window.removeEventListener('keydown', hotkey);
-  }, [state.seeds, state.goldSeeds, treeOpen, saveOpen, marketId, industry, research, mode, reading, active]);
+  }, [state.seeds, state.goldSeeds, treeOpen, saveOpen, marketId, industry, research, team, goalsOpen, mode, reading, active]);
 
   function inspect(worker, focusOnMap = false) {
     setProfile(worker.id);
@@ -1096,6 +1050,34 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
     changeMode(mode === 'sprinkler' && sprinklerId === null ? null : 'sprinkler');
   }
 
+  function navigateGoal(action) {
+    openGoals(false);
+    changeMode(null);
+    switch (action.kind) {
+      case 'shop':
+        selectOrchard(null);
+        setShopOpen(true);
+        if (!wide) setPartyOpen(false);
+        break;
+      case 'market': setMarketId(action.id); break;
+      case 'build': setIndustry('build'); break;
+      case 'station': setIndustry(action.id); break;
+      case 'research': openResearch('overview'); break;
+      case 'upgrades': setTreeOpen(true); break;
+      case 'placement':
+        if (action.mode === 'farm' && state.trade.coins < landPrice(state, true) || action.mode === 'market' && state.trade.coins < stallPrice(state)) {
+          selectOrchard(null);
+          setShopOpen(true);
+          if (!wide) setPartyOpen(false);
+        } else {
+          setShopOpen(false);
+          if (!wide) setPartyOpen(false);
+          changeMode(action.mode);
+        }
+        break;
+    }
+  }
+
   function closeTree() {
     setTreeOpen(false);
     upgradeButton.current?.focus();
@@ -1136,6 +1118,8 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
       onWild={item => dispatch('pickWild', { id: item.id })}/>
     <div className="hud">
       <button type="button" className="pixel-button square game-menu-toggle" aria-label="Главное меню" onClick={onMenu}><Glyph name="menu"/></button>
+      {state.workers.length > 0 && <button type="button" className="pixel-button goals-toggle" aria-label="Цели сада" onClick={() => openGoals(true)}>
+        {icon('pin','Цели')}</button>}
       <div className="resources pixel-window" aria-label="Ресурсы"><Hardware/>
         <div className="resource" data-tutorial-highlight={(reading?.id === STOCK_LESSON.id || (teaching && beginner.target === 'mystery')) || undefined} aria-label={`Яблоки: ${state.apples}`}>{icon('apple', number.format(state.apples))}</div>
         {state.trade.permit && <Tooltip label="Монеты" tap><div className="resource trade-resource" tabIndex={0}>{icon('coin', number.format(state.trade.coins))}</div></Tooltip>}
@@ -1164,7 +1148,7 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
       onRename={name => dispatch('renameWorker', { id: profile.id, name })}
       toggle={() => { if (!wide && !partyOpen) setShopOpen(false); setPartyOpen(!partyOpen); }}>
       {profile ? <HedgeProfile state={state} worker={profile} dispatch={dispatch} onLocate={() => locate(profile)} onAssign={() => startAssignment(profile)}/>
-        : <WorkerList state={state} dispatch={dispatch} onInspect={worker => inspect(worker, true)} onAssign={startAssignment} assigningId={assigning?.id} orchardId={orchard.id} tutorialTarget={partyTarget}/>}
+        : <WorkerList state={state} dispatch={dispatch} onInspect={worker => inspect(worker, true)} onAssign={startAssignment} assigningId={assigning?.id} orchardId={orchard.id} tutorialTarget={partyTarget} onTeam={openTeam}/>}
     </Panel>}
     <Panel name="Лавка" symbol="seed" side="shop" open={shopOpen} guided={Boolean(shopTarget && !shopOpen)} contentKey={selected?.id ?? 'general'}
       toggle={() => { if (!wide && !shopOpen) setPartyOpen(false); setShopOpen(!shopOpen); }}>
@@ -1173,7 +1157,8 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
         onIndustry={() => setIndustry('overview')} onOpenMarket={stall => { changeMode(null); setMarketId(stall.id); }} onFocus={point => { setFocusPoint({ ...point }); if (!wide) setShopOpen(false); }}/>
     </Panel>
     {remaining > 0 && <div className="boost pixel-window" role="status">{icon('flower', `Бодрость ${remaining} с`)}</div>}
-    <div className={`status-wrap${teaching && (shopOpen || partyOpen && state.unlocked) ? ' with-sheet' : ''}`} aria-live="polite">
+    <div className={`status-wrap${(teaching || showGoal) && (shopOpen || partyOpen && state.unlocked) ? ' with-sheet' : ''}`} aria-live="polite">
+      {showGoal && <GardenGoalCue goal={goals[0]} count={goals.length} onOpen={() => openGoals(true)}/>}
       {teaching && <BeginnerCue task={beginner} apples={state.apples} hidden={!state.unlocked}
         hint={beginner.mode && !mode ? 'Открой «Лавку» и выбери саженец.' : beginner.hint}
         onLocate={mapTarget ? locateLesson : null}/>}
@@ -1193,12 +1178,17 @@ export function GameView({ state, dispatch, audio, onImport, onMenu, active = tr
     {researchOpen && research && <ResearchScreen state={state} dispatch={dispatch} initialSite={research === 'overview' ? null : research}
       onClose={() => openResearch(null)} onFocus={site => { openResearch(null); setFocusPoint({x:site.x,y:site.y}); }}
       onBuild={kind => { openResearch(null); changeMode(`build:r-${kind}`); }}/>}
-    {industry && <IndustryScreen state={state} dispatch={dispatch} initialSite={industry === 'overview' ? null : industry}
+    {industry && <IndustryScreen state={state} dispatch={dispatch} initialSite={['overview','build'].includes(industry) ? null : industry} initialTab={industry === 'build' ? 'build' : undefined}
       onClose={() => setIndustry(null)} onBuild={kind => {
         changeMode(`build:${kind}`);
         if (kind === 'mine') setFocusPoint({ ...COAL_SITES[1] });
         setIndustry(null);
       }} onFocus={point => { setFocusPoint({ x: point.x, y: point.y }); setIndustry(null); }}/>}
+    {goalsOpen && <GardenGoalsScreen goals={goals} pinned={pinGoal} onPin={() => {
+      try { localStorage.setItem('orchard-hide-goal', pinGoal ? '1' : '0'); } catch { /* Optional preference. */ }
+      setPinGoal(!pinGoal);
+    }} onClose={() => openGoals(false)} onNavigate={navigateGoal}/>}
+    {team && <TeamScreen state={state} dispatch={dispatch} initialTab={team} onClose={() => openTeam(null)}/>}
     {treeOpen && <UpgradeTree state={state} dispatch={dispatch} onClose={closeTree}/>}
     {saveOpen && <SaveTransfer state={state} onClose={() => setSaveOpen(false)} onImport={onImport}/>}
     {market && <MarketScreen key={market.id} state={state} stall={market} dispatch={dispatch} onClose={() => setMarketId(null)}

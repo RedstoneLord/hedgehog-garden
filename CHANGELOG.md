@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.2.3
+
+- Supply hedgehogs keep market stalls stocked between orders, with separate storage for apples, berries, and prepared goods.
+- Nearby stalls share visitor demand. A smooth placement heatmap shows nearby competition, market demand, and soil quality.
+- Added an optional goal list for trade, farming, production, warehouses, and research.
+- Added placeable warehouses and redesigned group assignments and saved teams for desktop and mobile.
+- Translated the unique perk award into Russian, redrew perk icons for clarity, and made Зоркий садовник five times rarer.
+- Increased the influence of hedgehog stats on their jobs.
+
+See the [0.7.2.3 release notes](versions/0.7.2.3/RELEASE.md).
+
 ## 0.7.2.2
 
 - The estate map and warehouse reveal layers, stations, and goods as players discover them. The map shows routes hedgehogs have walked between facilities.

@@ -1,6 +1,6 @@
 import { movementPerks, perkEffect } from './perks.js';
 import { researchUnlocked } from './commission.js';
-import { HOUSE, isFieldCrop } from './orchard.js';
+import { HOUSE, isFieldCrop, skilledWorkRate } from './orchard.js';
 import { adjustStock, canCraft, industryStations, nearestHome, homeStock, stockCount } from './industry.js';
 import { distance, followRoute } from './routes.js';
 import { regionAt, riverDistance, terrainKind, WORLD } from './terrain.js';
@@ -332,7 +332,7 @@ export function advanceResearch(state, seconds, plan, water, earned) {
   function walk(worker,target) {
     const route = worker.researchRoute;
     if (!route || route.x !== target.x || route.y !== target.y) worker.researchRoute = plan(worker,target);
-    if (worker.researchRoute) followRoute(worker,worker.researchRoute,(90 + worker.stats.speed * 5) * movementPerks(state,worker),seconds,state.industry.roads);
+    if (worker.researchRoute) followRoute(worker,worker.researchRoute,(115 + (worker.stats.speed - 5) * 6) * movementPerks(state,worker),seconds,state.industry.roads);
   }
   for (const site of [...sites,...state.industry.workshops.filter(site => site.electric)]) { site.power = 0; if (output[site.kind]) site.output = 0; }
   for (const net of powerNetworks(state)) {
@@ -381,12 +381,12 @@ export function advanceResearch(state, seconds, plan, water, earned) {
   for (const site of sites) {
     const operator = atSite.get(site.id);
     if (operator && site.kind === 'generator' && site.broken) {
-      site.repair = (site.repair ?? 0) + seconds;
+      site.repair = (site.repair ?? 0) + seconds * skilledWorkRate(operator,'handling',.016);
       if (site.repair >= (state.upgrades.includes('maintainerKit') ? 9 : 10) * perkEffect(operator,'repair',1) && researchActions.repairGenerator(state,{id:site.id})) {
         site.repair = 0; earned?.(operator,'operator');
       }
     } else if (site.kind === 'lab' && operator && site.power) {
-      site.work = (site.work ?? 0) + seconds * site.power * (hasResearch(state,'labExpansion') ? 1.6 : 1) * perkEffect(operator,'research',1) * (state.upgrades.includes('fieldNotes') ? 1.05 : 1);
+      site.work = (site.work ?? 0) + seconds * site.power * (hasResearch(state,'labExpansion') ? 1.6 : 1) * perkEffect(operator,'research',1) * skilledWorkRate(operator,'foraging',.018) * (state.upgrades.includes('fieldNotes') ? 1.05 : 1);
       const reward = Math.floor(site.work / 12);
       if (reward) { site.work -= reward * 12; state.research.rp += reward; earned?.(operator,'researcher'); }
     } else if (site.kind === 'pump' && site.power) {

@@ -62,7 +62,7 @@ export function rollPerk(roll, choice) {
 }
 
 const uniqueJobs = {
-  harvest: ['orchardEye','Зоркий садовник','За поход берёт на два плода больше.','apple',{carry:2},.000065],
+  harvest: ['orchardEye','Зоркий садовник','За поход берёт на два плода больше.','apple',{carry:2},.000013],
   water: ['rainmaker','Дождевик','Поливает два дополнительных растения.','water',{extraWater:2},.00010],
   forage: ['berryWhisperer','Ягодный след','Приносит восемь дополнительных диких ягод.','berry',{extraBerries:8},.00013],
   scout: ['woodlandSense','Чутьё леса','Замечает цветы на 180 шагов дальше.','flower',{detect:180},.00035],
@@ -98,7 +98,7 @@ export function movementPerks(state, worker) {
   return perkEffect(worker,'speed',1) * bloom;
 }
 export const freightPerkBonus = worker => perkEffect(worker, 'cargo') + 2 * perkEffect(worker, 'carry');
-export const canImproveFactoryBatch = worker => perkEffect(worker, 'craft', 1) < 1 || perkEffect(worker, 'batch') > 0;
+export const canImproveFactoryBatch = worker => (worker?.stats?.dexterity ?? 5) > 5 || perkEffect(worker, 'craft', 1) < 1 || perkEffect(worker, 'batch') > 0;
 
 const percent = value => Math.round(value * 100);
 const jobNotes = {

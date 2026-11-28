@@ -138,7 +138,7 @@ svg { display: block; }
 .worker-row > .square { flex: none; }
 .worker-row .worker-quick-action { flex: none; padding-inline: 5px; font-size: 11px; }
 .mystery-offer p { margin: 0 0 6px; }
-.game-shell:has(.placement-cells) .side-window.shop { visibility: hidden; }
+.game-shell:has(.placement-overlay) .side-window.shop { visibility: hidden; }
 .worker-profile { border: 0; background: none; color: #f6dba9; padding: 0; flex: 1; min-width: 0; text-align: left; display: flex; align-items: center; gap: 6px; }
 .worker-profile > svg { width: 34px; flex: none; }
 .worker-profile span { overflow-wrap: anywhere; }

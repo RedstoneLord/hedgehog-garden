@@ -7,7 +7,7 @@ import { GameSelect } from './game-select.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './art.jsx';
 import { IndustryArt } from './industry-art.jsx';
-import { BUILDINGS, buildingPrice, canCraft, discoveredGoods, factoryReady, GOODS, homeId, homesFor, homeStock, housingCapacity, incomingGoods, industryStations, JAR_PRICE, PRODUCTION_PRICE, RECIPES, ROAD_PRICE, stationCapacity, stationUpgradePrice, STATION_UPGRADES, stockCount, upgradeWorkshopPrice } from './industry.js';
+import { BUILDINGS, buildingPrice, canCraft, discoveredGoods, factoryReady, GOODS, homeId, homesFor, homeStock, housingCapacity, incomingGoods, industryStations, isStockSite, JAR_PRICE, PRODUCTION_PRICE, RECIPES, ROAD_PRICE, stationCapacity, stationUpgradePrice, STATION_UPGRADES, stockCount, storageLabel, upgradeWorkshopPrice } from './industry.js';
 import { orchardName } from './orchard.js';
 import { plotBounds } from './game.js';
 import { soilRate } from './siting.js';
@@ -52,7 +52,7 @@ function Workshop({ site, state, send }) {
       options={Object.entries(RECIPES).filter(([key, item]) => key === site.recipe || site.level >= item.level && (key !== 'biofuel' || hasResearch(state,key)))
         .map(([key]) => ({ value: key, label: GOODS[key].label }))}/></div>
     <div className="industry-ingredients">{Object.entries(recipe.needs).map(([item, qty]) => (
-      <Tooltip key={item} label={GOODS[item].label} detail={`На станции ${site.inputs[item] ?? 0} · в домах ${stockCount(state, item)}`}>
+      <Tooltip key={item} label={GOODS[item].label} detail={`На станции ${site.inputs[item] ?? 0} · на складах ${stockCount(state, item)}`}>
         <span tabIndex={0} className={(site.inputs[item] ?? 0) < qty ? 'shortage' : ''}><Good item={item} qty={qty}/> · на месте {site.inputs[item] ?? 0}</span>
       </Tooltip>))}
       <span aria-hidden="true">→</span><Good item={site.recipe} qty={recipe.amount + Number(state.upgrades.includes('largerBatches'))}/>
@@ -61,17 +61,17 @@ function Workshop({ site, state, send }) {
     {site.automatic !== false && site.level === 3 && !site.electric && site.recipe !== 'fuel' && !site.inputs.fuel && <p className="shortage">Фабрика ждёт топливо на станции.</p>}
     {output.length > 0 && <div className="industry-ingredients">{output.map(([item, qty]) => <Good key={item} item={item} qty={qty}/>)}</div>}
     <div className="industry-buttons">
-      <button className="pixel-button mini" type="button" disabled={!canCraft(state, site, site.recipe, true)} onClick={() => send('craft', { key: site.recipe })}><Glyph name="hand"/> Приготовить вручную с подносом из дома</button>
+      <button className="pixel-button mini" type="button" disabled={!canCraft(state, site, site.recipe, true)} onClick={() => send('craft', { key: site.recipe })}><Glyph name="hand"/> Приготовить вручную с доставкой ингредиентов</button>
       <button className="pixel-button mini" type="button" aria-pressed={site.automatic !== false} onClick={() => send('toggleWorkshop')}>
         {site.automatic === false ? 'Запустить смену' : 'Остановить смену'}
       </button>
-      {output.length > 0 && <button className="pixel-button mini" type="button" onClick={() => send('takeIndustryStock')}><Glyph name="crate"/> Отнести до 24 ед. в ближайший дом</button>}
+      {output.length > 0 && <button className="pixel-button mini" type="button" onClick={() => send('takeIndustryStock')}><Glyph name="crate"/> Отнести до 24 ед. в ближайшее хранилище</button>}
       {site.level < 3 && <button className="pixel-button mini" type="button" disabled={state.trade.coins < upgradeWorkshopPrice(site) || site.level === 2 && !factoryReady(site)} onClick={() => send('upgradeWorkshop')}>
         {site.level === 1 ? 'Улучшить мастерскую' : 'Построить фабрику'} · <Money amount={upgradeWorkshopPrice(site)}/>
       </button>}
     </div>
     {site.level === 2 && !factoryReady(site) && <p>Для фабрики купи скорость, партию и склад мастерской.</p>}
-    {site.level === 3 && <p>Ёжик с подходящим перком может ускорить партию или увеличить выпуск. Работа для него — «Настраивать фабрику».</p>}
+    {site.level === 3 && <p>Ловкий ёжик ускоряет партию, а подходящие перки могут увеличить выпуск. Работа для него — «Настраивать фабрику».</p>}
     {site.level === 3 && hasResearch(state,'retrofit') && <div className="industry-buttons">
       <p>{site.electric ? `Питание от сети · ${Math.round((site.power ?? 0)*100)}%` : 'Фабрика работает на топливе.'}</p>
       <button type="button" className="pixel-button mini" disabled={Boolean(site.batch)} onClick={() => send('retrofitFactory')}>
@@ -126,7 +126,7 @@ function GardenOverview({ state, onFocus }) {
   const links = visibleEstateLinks(state, mapSites);
   const networks = power && areas.power ? powerNetworks(state) : [];
   const zones = {
-    home:mapSites.home.map(({site,id}) => ({...site,id,label:site.id ? `Дом ${site.number}` : 'Первый дом',
+    home:mapSites.home.map(({site,id}) => ({...site,id,label:storageLabel(site),
       status:`Запасы · ${number.format(Object.keys(GOODS).reduce((sum,key) => sum + homeStock(state,site,key),0))}`})),
     garden:mapSites.garden.map(({site,id,orchard}) => ({...site,id,label:orchardName(id),
       status:`Готовых корзин · ${orchard.ready.length}`, workers:state.workers.filter(worker => worker.orchardId === id)})),
@@ -189,8 +189,8 @@ function Warehouse({ state, onFocus, dispatch }) {
   const categories = Object.entries(categoryGoods).filter(([, [,items]]) => items.some(item => discovered.includes(item)));
   const current = categories.some(([key]) => key === filter) ? filter : 'all';
   const keys = categoryGoods[current][1].filter(item => discovered.includes(item));
-  const allSites = [...homesFor(state).map(home => ({ home, id:homeId(home), site:home, label:home.id ? `Дом ${home.number}` : 'Первый дом' })),
-    ...industryStations(state).filter(site => site.kind !== 'house').map(site => ({ site,id:site.id,label:`${BUILDINGS[site.kind].label} ${site.number}` })),
+  const allSites = [...homesFor(state).map(home => ({ home, id:homeId(home), site:home, label:storageLabel(home) })),
+    ...industryStations(state).filter(site => !isStockSite(site)).map(site => ({ site,id:site.id,label:`${BUILDINGS[site.kind].label} ${site.number}` })),
     ...researchSites(state).filter(site => site.kind === 'generator').map(site => ({site,id:site.id,label:stationLabel(site)}))];
   return <>
     <section className="pixel-window industry-panel warehouse-panel">
@@ -223,9 +223,9 @@ function Warehouse({ state, onFocus, dispatch }) {
   </>;
 }
 
-export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild, onFocus }) {
+export function IndustryScreen({ state, dispatch, initialSite, initialTab, onClose, onBuild, onFocus }) {
   const dialog = useRef(null);
-  const [tab, setTab] = useState(initialSite ? 'stations' : 'board');
+  const [tab, setTab] = useState(initialTab ?? (initialSite ? 'stations' : 'board'));
   const [expanded, setExpanded] = useState(initialSite ?? null);
   const sites = industryStations(state);
   const industryOpen = state.industry.unlocked;
@@ -272,7 +272,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           {Object.entries(BUILDINGS).filter(([kind]) => state.industry.unlocked || kind === 'house').map(([kind, data]) => <section key={kind} className="pixel-window industry-panel">
             <div className="industry-art"><IndustryArt site={{kind}}/></div>
             <h3>{data.label}</h3>
-            <p>{{ workshop: 'Готовит продукты. Фабрика работает на топливе.', mine: 'Северные горы. Запасы угля не иссякают.', tractor: 'Доставляет грузы. Нужны водитель и топливо.', house: '+5 мест для ёжиков. Запасы у домов общие.' }[kind]}</p>
+            <p>{{ workshop: 'Готовит продукты. Фабрика работает на топливе.', mine: 'Северные горы. Запасы угля не иссякают.', tractor: 'Доставляет грузы. Нужны водитель и топливо.', house: '+5 мест для ёжиков. Запасы у домов общие.', warehouse: 'Дополнительное место приёма грузов. Работники и тракторы могут забирать отсюда товары.' }[kind]}</p>
             <button type="button" className="pixel-button" disabled={state.trade.coins < buildingPrice(state, kind)} onClick={() => onBuild(kind)}>Поставить · <Money amount={buildingPrice(state, kind)}/></button>
           </section>)}
         </div>
@@ -297,7 +297,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           return <section key={site.id} className="pixel-window industry-panel" data-open={expanded === site.id}>
             <div className="industry-station">
               <button className="pixel-button" type="button" aria-expanded={expanded === site.id} onClick={() => setExpanded(expanded === site.id ? null : site.id)}><Glyph name={BUILDINGS[site.kind].icon}/> {label} {site.number}</button>
-              <small>{site.kind === 'house' ? '+5 мест' : site.automatic === false ? 'На паузе'
+              <small>{site.kind === 'house' ? '+5 мест' : site.kind === 'warehouse' ? 'Хранилище грузов' : site.automatic === false ? 'На паузе'
                 : staff.map(worker => worker.name).join(', ') || (site.level === 3 ? 'Автоматизация' : 'Нужен ёжик')}</small>
               <button className="pixel-button mini square" type="button" aria-label={`Показать на карте: ${label} ${site.number}`} onClick={() => onFocus(site)}><Glyph name="map"/></button>
             </div>
@@ -306,12 +306,12 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
               {site.kind === 'mine' && <><p>Уголь · {site.coal}/{stationCapacity(site,state)}{site.fuel > 0 ? ` · старый запас топлива ${site.fuel}` : ''}{site.mineAt ? ' · идёт добыча' : ''}</p>
                 <div className="industry-buttons">
                   <button type="button" className="pixel-button mini" disabled={Boolean(site.mineAt) || site.coal >= stationCapacity(site,state)} onClick={() => send('mineCoal')}>Добыть уголь</button>
-                  <button type="button" className="pixel-button mini" disabled={!site.coal && !site.fuel} onClick={() => send('takeIndustryStock')}>Отнести до 24 ед. в ближайший дом</button>
+                  <button type="button" className="pixel-button mini" disabled={!site.coal && !site.fuel} onClick={() => send('takeIndustryStock')}>Отнести до 24 ед. в ближайшее хранилище</button>
                 </div>
                 <StationUpgrades site={site} state={state} send={send}/></>}
               {site.kind === 'tractor' && <p>{site.trip ? `Рейс · ${GOODS[site.trip.item]?.label ?? 'корзины'} ×${site.trip.amount} · ${site.trip.loaded ? 'к получателю' : 'к месту погрузки'}` :
                 !staff.length ? 'Назначь водителя в профиле ёжика.' : !site.tank && !stockCount(state, 'fuel') ? 'Ждёт топливо' : 'Ждёт подходящий груз и дорогу'} · Топливо: {site.tank ?? 0}</p>}
-              {site.kind === 'house' && <><p>Запасы хранятся в этом доме. Другие станции получают их доставкой.</p>
+              {isStockSite(site) && <><p>Запасы хранятся здесь. Другие станции получают их доставкой.</p>
                 <div className="industry-stock">{Object.entries(site.stock ?? {}).filter(([, qty]) => qty > 0).map(([item, qty]) => <Good key={item} item={item} qty={qty}/>)}</div></>}
               {industryOpen && <FreightControl id={site.id} state={state} dispatch={dispatch}/>}
             </div>}
@@ -324,7 +324,7 @@ export function IndustryScreen({ state, dispatch, initialSite, onClose, onBuild,
           <h3>Доставки</h3>
           <p>{industryOpen && <>Тракторных рейсов {state.industry.deliveries} · В пути {state.industry.tractors.filter(site => site.trip).length} · </>}Ёжики {state.workers.length}/{housingCapacity(state)}</p>
           <StatusBoard state={state} onFocus={onFocus}/>
-          <div className="industry-board">{industryOpen && sites.filter(site => site.kind !== 'house').map(site => {
+          <div className="industry-board">{industryOpen && sites.filter(site => !isStockSite(site)).map(site => {
             const staff = state.workers.some(worker => worker.siteId === site.id);
             return <button className="pixel-button" type="button" key={site.id} onClick={() => { setExpanded(site.id); setTab('stations'); }}>
               <span><Glyph name={staff || site.level === 3 ? 'check' : 'pin'}/> {site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label} {site.number}</span>
