@@ -17,6 +17,7 @@ import { advanceCustomers, canServe, frontCustomer, globalUpgradeBonus, migrateM
 
 import { adjustStock, advanceIndustry, GOODS, housingCapacity, INDUSTRY_ROLES, industryActions, industrySite, industryWorkplaces, migrateLogistics, nearestHome, newIndustry, validIndustry } from './industry.js';
 import { soilRate } from './siting.js';
+import { RECEIPT_DURATION, recordReceipt, restoreReceipts } from './resource-receipts.js';
 
 export { WORLD };
 const moveToNewMap = ({ x, y, ...item }) => ({ ...item, x: x + OLD_MAP_OFFSET.x, y: y + OLD_MAP_OFFSET.y });
@@ -342,12 +343,14 @@ function notice(state, text, symbol = 'apple') {
   state.notice = { text, symbol, at: state.time, serial: state.nextId++ };
 }
 
-function earnLevels(state) {
+function earnLevels(state, showReceipt = true) {
+  const previous = state.xp;
   while (state.xpProgress >= nextLevelXp(state.level)) {
     state.xpProgress -= nextLevelXp(state.level);
     state.level += 1;
     state.xp += state.level < 9 ? 1 : 2 + Math.floor(Math.sqrt((state.level - 9) / 8));
   }
+  if (showReceipt) recordReceipt(state, 'xp', 'xp', state.xp - previous);
 }
 
 function deposit(state, cargo, orchardId, worker, home = HOUSE) {
@@ -355,10 +358,9 @@ function deposit(state, cargo, orchardId, worker, home = HOUSE) {
   adjustStock(state, 'apples', amount, home);
   adjustStock(state, 'berries', cargo.berry ?? 0, home);
   adjustStock(state, 'wheat', cargo.wheat ?? 0, home);
-  if (cargo.berry) notice(state, `Доставлено ягод +${cargo.berry}.`, 'berry');
   const alreadyReceived = state.basketReceipt?.at === state.time ? state.basketReceipt.amount : 0;
   const berries = (state.basketReceipt?.at === state.time ? state.basketReceipt.berries ?? 0 : 0) + (cargo.berry ?? 0);
-  state.basketReceipt = { at: state.time, amount: alreadyReceived + amount, ...(berries ? { berries } : {}), id: state.nextId++ };
+  state.basketReceipt = { at: state.time, amount: alreadyReceived + amount, ...(berries ? { berries } : {}), home: home.id ?? 'house', id: state.nextId++ };
   state.xpProgress += state.trade.permit ? Math.ceil((amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0)) * .72) : amount + (cargo.berry ?? 0) + (cargo.wheat ?? 0);
   earnLevels(state);
   if (worker) {
@@ -377,7 +379,8 @@ function deposit(state, cargo, orchardId, worker, home = HOUSE) {
     if (!state.goldDiscovered) {
       state.goldDiscovered = true;
       notice(state, 'В корзине нашёлся янтарный саженец. Его плоды в доме стоят вдвое больше.', 'gold');
-    } else notice(state, 'Найден янтарный саженец.', 'gold');
+    }
+    recordReceipt(state, home.id ?? 'house', 'seed', 1);
   }
 }
 
@@ -401,7 +404,10 @@ function availableSpace(state, orchard, exclude) {
 
 function stage(state, orchard, variety, amount) {
   const accepted = stageFruit(orchard, variety, amount);
-  if (accepted) orchard.pulse = { id: state.nextId++, at: state.time, amount: accepted };
+  if (accepted) {
+    orchard.pulse = { id: state.nextId++, at: state.time, amount: accepted };
+    recordReceipt(state, `basket-${orchard.id}`, ['berry', 'wheat', 'gold'].includes(variety) ? variety : 'apple', accepted);
+  }
   return accepted;
 }
 
@@ -440,7 +446,6 @@ const actions = {
     if (!space) return false;
     const amount = pick(state, tree, space);
     stage(state, orchard, tree.variety, amount);
-    notice(state, `В садовой корзине +${amount} ${isFieldCrop(tree.variety) ? VARIETIES[tree.variety].label.toLowerCase() : 'ябл.'}`, tree.variety === 'berry' ? 'berry' : 'apple');
     return true;
   },
   removeTree(state, { id }) {
@@ -720,7 +725,7 @@ const actions = {
     });
     const noFuel = state.industry.tractors.some(tractor => !tractor.trip) && !(state.industry.stock.fuel > 0);
     const message = crowded ? 'Грядки и сады посажены слишком тесно. Перенеси один участок подальше. При переносе зелёная подсветка покажет землю для быстрого роста.'
-      : state.workers.length + reservedHousing(state) >= housingCapacity(state) ? 'Все места у дома заняты. Новый дом даст ещё пять мест, а запасы у всех домов общие.'
+      : state.workers.length + reservedHousing(state) >= housingCapacity(state) ? 'Все места у дома заняты. Новый дом даст ещё пять мест. У каждого дома свой запас, а в «Хозяйстве» видно, где что лежит.'
         : noFuel ? 'Тракторы ждут топлива. Назначь ёжика в угольную шахту или добудь уголь и отнеси готовое топливо на склад.'
           : waitingOrder ? 'В лавке ждёт заказ. В сводке хозяйства видно, чего не хватает и какие грузы уже в пути.'
             : state.industry.unlocked ? 'Поставь мастерскую рядом с дорогой и назначь ёжика. Пшеница идёт в муку, а для варенья пригодятся банки со склада.'
@@ -1104,12 +1109,13 @@ function assignJobs(state, seconds) {
 
 export function advance(state, elapsed) {
   if (elapsed <= 0) return state;
-  if (!state.trees.length && !state.jobs.length && !state.workers.length && !state.boostUntil && !state.flowerAt && !state.notice && !state.industry.unlocked && !state.trade.stalls.length && !state.lodge?.waiting.length) return state;
+  if (!state.trees.length && !state.jobs.length && !state.workers.length && !state.boostUntil && !state.flowerAt && !state.notice && !state.resourceReceipts?.length && !state.industry.unlocked && !state.trade.stalls.length && !state.lodge?.waiting.length) return state;
   const next = structuredClone(state);
   next.time += elapsed;
   if (next.quote?.until <= next.time) next.quote = null;
   if (next.notice && next.time - next.notice.at >= 4100) next.notice = null;
   if (next.basketReceipt && next.time - next.basketReceipt.at >= 800) next.basketReceipt = null;
+  if (next.resourceReceipts?.length) next.resourceReceipts = next.resourceReceipts.filter(receipt => next.time - receipt.at < RECEIPT_DURATION);
   next.deliveries = next.deliveries.filter(event => next.time - event.at <= BALANCE.productionWindow);
   const plots = orchardPlots(next);
   const rates = new Map(next.orchards.map((orchard, index) => [orchard.id, soilRate(plots[index], plots)]));
@@ -1300,8 +1306,9 @@ function readGame(raw, legacy) {
       const previousGoal = BALANCE.firstLevelXp + (state.level - 1) * 2;
       if (!Number.isSafeInteger(state.xpProgress) || state.xpProgress < 0 || !Number.isSafeInteger(state.level) || state.level < 1
         || state.xpProgress >= previousGoal) return null;
-      earnLevels(state);
+      earnLevels(state, false);
       state.basketReceipt ??= null;
+      restoreReceipts(state);
       state.flowers = (state.flowers ?? []).slice(0, 1);
       if (previousBalance) state.flowerAt = state.flowers.length ? 0 : state.time + BALANCE.flowerCooldown;
       state.seedPurchases ??= Math.max(0, state.trees.length + state.seeds - 1);

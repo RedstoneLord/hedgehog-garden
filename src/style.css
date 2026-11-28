@@ -400,8 +400,15 @@ svg { display: block; }
   84% { transform: translateX(-1px); }
 }
 .basket-motion.receiving { animation: basket-hop .46s steps(1, end) both; }
-.basket-gain { position: absolute; bottom: 96%; pointer-events: none; display: flex; gap: 2px; align-items: center; line-height: 1; font-size: 15px; color: #fff0b9; text-shadow: 1px 2px #383232, -1px 0 #383232; white-space: nowrap; animation: receipt-rise .78s steps(6, end) both; }
-.basket-gain .glyph { width: 15px; height: 15px; }
+.receipt-anchor { position: relative; }
+.resource-receipts { display: flex; flex-direction: column; align-items: center; gap: 2px; position: absolute; z-index: 2; pointer-events: none; white-space: nowrap; }
+.resource-receipt { display: flex; align-items: center; gap: 3px; padding: 1px 4px; background: #302436d9; border: 1px solid #976c49; line-height: 1; font-size: 13px; color: #fff0b9; text-shadow: 1px 1px #382b34; animation: receipt-rise 1.4s ease-out both; }
+.resource-receipt .glyph { width: 14px; height: 14px; }
+.map-item > .resource-receipts { left: 50%; bottom: 100%; transform: translateX(-50%) scale(var(--receipt-scale)); transform-origin: center bottom; }
+.house-item > .resource-receipts { bottom: 87%; }
+.stall-item:has(.scientist-marker) > .resource-receipts { left: 86%; }
+.hud-receipts { top: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
+.panel-receipts { right: 0; top: calc(100% + 3px); align-items: flex-end; }
 @keyframes tree-rustle {
   0%, 100% { transform: none; }
   12%, 45%, 81% { transform: translateX(-1px); }
@@ -415,11 +422,11 @@ svg { display: block; }
   72% { transform: translateY(-2px); }
 }
 @keyframes receipt-rise {
-  0% { opacity: 1; transform: translateY(3px); }
+  0% { opacity: 1; transform: translateY(2px); }
   68% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-25px); }
+  100% { opacity: 0; transform: translateY(-10px); }
 }
-@media (prefers-reduced-motion: reduce) { .basket-gain { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .resource-receipt { animation: none; } }
 @media (prefers-reduced-motion: reduce) {
   .world-ambient { display: none; }
   .tree-item .tree-crown { animation: none; }
@@ -445,7 +452,6 @@ svg { display: block; }
 .house-item .basket-label { font-size: 14px; }
 .house-entrance .basket-label { display: flex; align-items: center; gap: 5px; padding: 4px 6px; }
 .house-entrance .basket-label .glyph { width: 14px; height: 14px; }
-.house-item .basket-gain { bottom: 87%; }
 @keyframes house-arrival { 45% { filter: brightness(1.3); transform: scale(1.035); } }
 .manual-carrier { width: 41px; pointer-events: none; transition: left .09s linear, top .09s linear; animation: courier-hop 430ms steps(1,end) infinite; }
 @keyframes courier-hop { 50% { margin-top: -3px; } }
@@ -507,7 +513,6 @@ svg { display: block; }
 .recruit-stats span { display:flex; align-items:center; gap: 3px; }
 .recruit-stats svg { width: 20px; height: 20px; }
 .recruit-offer p { font-size: 12px; margin-top: 5px; }
-.camera-controls .map-extra { order: -1; }
 
 .job-advice { color: #f5d69a; min-width: 0; }
 .job-advice ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; padding: 0; list-style: none; }

@@ -320,6 +320,8 @@ test('customers enter from path endpoints and each accepted order pays once', ()
   state = fulfill(state);
   assert.equal(state.trade.coins,90);
   assert.equal(state.trade.sales,1);
+  assert.deepEqual(state.resourceReceipts.find(receipt => receipt.icon === 'coin'),
+    { anchor:`stall:${stall.id}`, icon:'coin', amount:90, at:state.time });
   assert.deepEqual(state.trade.stalls[0].recentSales, [
     { id: customer.id, guest: 'bobby', items: [{ key: 'apples', quantity: 200 }], earned: 90 },
   ]);

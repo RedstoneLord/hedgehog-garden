@@ -1,9 +1,10 @@
 import { movementPerks, perkEffect } from './perks.js';
 import { researchUnlocked } from './commission.js';
 import { HOUSE, isFieldCrop, skilledWorkRate } from './orchard.js';
-import { adjustStock, canCraft, industryStations, nearestHome, homeStock, stockCount } from './industry.js';
+import { adjustStock, canCraft, GOODS, industryStations, nearestHome, homeStock, stockCount } from './industry.js';
 import { distance, followRoute } from './routes.js';
 import { regionAt, riverDistance, terrainKind, WORLD } from './terrain.js';
+import { recordReceipt } from './resource-receipts.js';
 
 export const RESEARCH_BRANCHES = {
   agricultural: 'Земледелие', electrical: 'Электричество', industry: 'Производство',
@@ -162,7 +163,7 @@ export const researchActions = {
       || ![1,2,3].includes(difficulty) || stationId !== undefined && !leisure) return false;
     const research = initializeResearch(state);
     if (research.challenge) return false;
-    research.challenge = { ...makeChallenge(state,type,difficulty), difficulty, leisure, serial:state.nextId++ };
+    research.challenge = { ...makeChallenge(state,type,difficulty), difficulty, leisure, stationId, serial:state.nextId++ };
     return true;
   },
   solveChallenge(state, { guess }) {
@@ -171,6 +172,7 @@ export const researchActions = {
     const amount = [0,4,7,10][challenge.difficulty];
     if (challenge.leisure) state.trade.coins += amount * 3;
     else state.research.rp += amount;
+    recordReceipt(state, challenge.stationId ?? 'manual-research', challenge.leisure ? 'coin' : 'flask', challenge.leisure ? amount * 3 : amount);
     state.research.challenge = null;
     return true;
   },
@@ -202,6 +204,7 @@ export const researchActions = {
     if (amount <= 0) return false;
     adjustStock(state,site.fuel,-amount);
     site.stock[site.fuel] = (site.stock[site.fuel] ?? 0) + amount;
+    recordReceipt(state, site.id, GOODS[site.fuel].icon, amount);
     return true;
   },
   repairGenerator(state, { id }) {
@@ -223,6 +226,7 @@ export const researchActions = {
     if (researchSite(state,id)?.kind !== 'chance' || ![10,25,50].includes(stake) || state.trade.coins < stake) return false;
     const won = pick(state,100) < 46;
     state.trade.coins += won ? stake : -stake;
+    recordReceipt(state, id, 'coin', won ? stake : -stake);
     state.research.chance = { id, won, stake, serial: state.nextId++ };
     return true;
   },
@@ -311,6 +315,7 @@ export function advanceResearch(state, seconds, plan, water, earned) {
           const { key, amount } = worker.powerCargo;
           const accepted = Math.min(amount,Math.max(0,fuelCapacity(state) - (site.stock[key] ?? 0)));
           site.stock[key] = (site.stock[key] ?? 0) + accepted;
+          recordReceipt(state, site.id, GOODS[key].icon, accepted);
           if (amount > accepted) adjustStock(state,key,amount - accepted,nearestHome(state,site));
           delete worker.powerCargo;
         }
@@ -388,7 +393,12 @@ export function advanceResearch(state, seconds, plan, water, earned) {
     } else if (site.kind === 'lab' && operator && site.power) {
       site.work = (site.work ?? 0) + seconds * site.power * (hasResearch(state,'labExpansion') ? 1.6 : 1) * perkEffect(operator,'research',1) * skilledWorkRate(operator,'foraging',.018) * (state.upgrades.includes('fieldNotes') ? 1.05 : 1);
       const reward = Math.floor(site.work / 12);
-      if (reward) { site.work -= reward * 12; state.research.rp += reward; earned?.(operator,'researcher'); }
+      if (reward) {
+        site.work -= reward * 12;
+        state.research.rp += reward;
+        recordReceipt(state, site.id, 'flask', reward);
+        earned?.(operator,'researcher');
+      }
     } else if (site.kind === 'pump' && site.power) {
       site.work = (site.work ?? 0) + seconds * site.power;
       if (site.work >= 4) {

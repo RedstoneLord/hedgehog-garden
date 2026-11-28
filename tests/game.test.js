@@ -379,6 +379,7 @@ test('tree, orchard basket, and house signals occur at distinct stages', () => {
   assert.equal(game.trees[0].pulse.at, game.time);
   assert.equal(game.orchards[0].pulse.amount, BALANCE.crop);
   assert.equal(game.basketReceipt, null);
+  assert.deepEqual(game.resourceReceipts, [{ anchor:`basket-${game.orchards[0].id}`, icon:'apple', amount:BALANCE.crop, at:game.time }]);
   const manualId = game.trees[0].pulse.id;
   game = act({ ...game, apples: 100 }, 'unlock');
   game = until(game, state => state.jobs[0]?.phase === 'basket');
@@ -388,6 +389,9 @@ test('tree, orchard basket, and house signals occur at distinct stages', () => {
   game = until(game, state => Boolean(state.basketReceipt));
   assert.equal(game.basketReceipt.amount, 10);
   assert.equal(game.apples, 10);
+  assert.deepEqual(game.resourceReceipts.find(receipt => receipt.anchor === 'house'),
+    { anchor:'house', icon:'apple', amount:10, at:game.time });
+  assert.ok(!advance(game, 1450).resourceReceipts.some(receipt => receipt.anchor === 'house' && receipt.at === game.time));
 });
 
 test('migration from the 0.2.1 map preserves relative positions and reconstructs paid seed purchases', () => {

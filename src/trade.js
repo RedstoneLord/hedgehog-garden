@@ -11,6 +11,7 @@ import { regionAt, riverDistance, terrainKind, TRADE_GATES, TRADE_ROADS, WORLD }
 
 import { adjustStock, GOODS, homeStock, industryStations, nearestHome, PRODUCED_GOODS, stockCount } from './industry.js';
 import { demandScore, marketDemand, trafficLevel } from './siting.js';
+import { recordReceipt } from './resource-receipts.js';
 
 export const PERMIT_PRICE = 2500;
 export const FARM_PRICE = 1000;
@@ -284,11 +285,11 @@ function completeSale(state, stall, customer, worker) {
   const earned = Math.floor(orderPayment(state, stall, customer.order) * (1 + (worker ? perkEffect(worker,'sale') : 0)));
   uniqueWork(state,worker,'vendor');
   state.trade.coins += earned;
+  recordReceipt(state, `stall:${stall.id}`, 'coin', earned);
   state.trade.sales++;
   stall.recentSales = [{ id: customer.id, guest: customer.kind, items, earned }, ...(stall.recentSales ?? [])].slice(0, 5);
   leave(stall,customer);
   advanceScientist(state,stall.id);
-  note(state, `Заказ выполнен. +${earned} монет.`);
   if (state.trade.sales === 1) explain(state, 'firstSale', 'Первая продажа! Монеты можно потратить на полки, вывеску и место для очереди. Продавец-ёжик тоже сможет принимать заказы.');
   return true;
 }
@@ -437,6 +438,7 @@ function wildHarvest(state, patch, amount = patch?.fruit ?? 0) {
   if (!state.trade.bonusSeed) {
     state.trade.berrySeeds++;
     state.trade.bonusSeed = true;
+    recordReceipt(state, patch.id, 'seed', 1);
   }
   return taken;
 }
@@ -547,7 +549,7 @@ export const tradeActions = {
     const taken = wildHarvest(state,state.trade.wild.find(item => item.id === id));
     if (!taken) return false;
     state.trade.berries += taken;
-    note(state, `Дикие ягоды у дома +${taken}.`, 'berry');
+    recordReceipt(state, id, 'berry', taken);
     return true;
   },
   placeGarden(state, { point }, { plots }) {
@@ -606,10 +608,11 @@ export const tradeActions = {
   refillCan(state, { orchardId = BERRY_ORCHARD }) {
     const farm = berryBounds(state, orchardId);
     if (!farm || state.trade.canWater >= (state.trade.largeCan ? 5 : 3) || state.time < (state.trade.refillAt ?? 0)) return false;
+    const previous = state.trade.canWater;
     state.trade.canWater = state.trade.largeCan ? 5 : 3;
     const center = { x: farm.x + farm.width / 2, y: farm.y + farm.height / 2 };
     state.trade.refillAt = state.time + Math.min(18000, distance(farm.water, center) * 9);
-    note(state, 'Лейка наполнена.', 'water');
+    recordReceipt(state, `water-${farm.water.x},${farm.water.y}`, 'water', state.trade.canWater - previous);
     return true;
   },
   waterPlant(state,{id}) {
@@ -649,8 +652,11 @@ export const tradeActions = {
       worker.stallId = state.trade.stalls[0]?.id ?? null;
       if (worker.stallId === null && ['restock','vendor'].includes(worker.workRole)) worker.workRole = 'auto';
     }
-    if (stall.price) state.trade.coins += Math.floor(stall.price / 2);
-    else state.trade.stallCredits++;
+    if (stall.price) {
+      const refund = Math.floor(stall.price / 2);
+      state.trade.coins += refund;
+      recordReceipt(state, 'coins', 'coin', refund);
+    } else state.trade.stallCredits++;
     return true;
   },
 };
@@ -730,7 +736,6 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
     if (arrived === false) return false;
     adjustStock(state, 'berries', job.amount, house);
     uniqueWork(state,worker,'forage');
-    note(state, `${worker.name} принёс дикие ягоды +${job.amount}.`, 'berry');
     return true;
   }
   if (job.kind === 'water') {
@@ -794,6 +799,7 @@ export function moveTradeJob(state, job, worker, stride, seconds, house, roads =
     const accepted = arrived ? Math.min(amount, shelfRoom(state, stall, key, false)) : 0;
     if (accepted) {
       stall.stock[key] = (stall.stock[key] ?? 0) + accepted;
+      recordReceipt(state, `stall:${stall.id}`, GOODS[key].icon, accepted);
       uniqueWork(state,worker,'restock');
     }
     if (amount > accepted) adjustStock(state, key, amount - accepted, nearestHome(state, worker));

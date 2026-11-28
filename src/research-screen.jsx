@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Glyph, HedgeSprite } from './art.jsx';
 import { CustomerPortrait } from './trade-art.jsx';
 import { GameSelect } from './game-select.jsx';
+import { ResourceReceipts } from './resource-receipts.jsx';
 import { Tooltip } from './tooltip.jsx';
 import { SCIENTIST_GOODS, SCIENTIST_PRICE, researchUnlocked, scientistDemand, scientistInTransit, scientistReady } from './commission.js';
 import { trainingCost } from './development.js';
@@ -113,12 +114,14 @@ function ChallengeDesk({ state, dispatch, stationId }) {
     if (String(answer).trim() !== String(challenge.answer)) { setFeedback('Попробуй ещё раз.'); return; }
     dispatch('solveChallenge',{guess:answer});
     setGuess('');
-    setFeedback(`+${[0,4,7,10][challenge.difficulty] * (challenge.leisure ? 3 : 1)} ${challenge.leisure ? 'монет' : 'ОИ'}`);
+    setFeedback('');
   }
   const variants = [['math','Задача'],['logic','Последовательность'],['quiz','Вопрос']];
   if (stationId && hasResearch(state,'games')) variants.push(['memory','Память']);
   return <section className="pixel-window research-card challenge-desk">
-    <h3>{stationId ? 'Игровой стол' : 'Ручное исследование'}</h3>
+    <h3 className="receipt-anchor">{stationId ? 'Игровой стол' : 'Ручное исследование'}
+      {!stationId && <ResourceReceipts receipts={state.resourceReceipts?.filter(receipt => receipt.anchor === 'manual-research')} className="panel-receipts"/>}
+    </h3>
     {challenge ? <>
       <p className="challenge-question">{challenge.memory && hidden ? "Введи запомненные цифры" : challenge.text}</p>
       {challenge.values ? <div className="research-actions">{challenge.values.map(value => <button type="button" key={value} className="pixel-button" onClick={() => submit(value)}>{value}</button>)}</div>
@@ -305,7 +308,9 @@ export function ResearchScreen({ state, dispatch, initialSite, onClose, onBuild,
         </section>
         {station && <section className="pixel-window research-card" key={station.id}>
           <ResearchStationArt kind={station.kind} active={station.power > 0}/>
-          <h3>{stationLabel(station)}</h3>
+          <h3 className="receipt-anchor">{stationLabel(station)}
+            <ResourceReceipts receipts={state.resourceReceipts?.filter(receipt => receipt.anchor === station.id)} className="panel-receipts"/>
+          </h3>
           {['lab','pump','lamp'].includes(station.kind) && <p>{net ? `Питание · ${Math.round((station.power ?? 0) * 100)}%` : 'Вне зоны сети'}</p>}
           {chargeCapacity(station) > 0 && <p>Заряд · {Math.floor(station.charge ?? 0)} / {chargeCapacity(station)}</p>}
           {hasResearch(state,'metering') && net && <p>Сеть · {net.nodes.length} узл. · Запрос {net.nodes[0].grid?.demand ?? 0} ед. · Доступно {Math.round(net.nodes[0].grid?.supply ?? 0)} ед.</p>}

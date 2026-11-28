@@ -87,6 +87,7 @@ test('warehouses receive workshop cargo and share stock without increasing housi
   assert.equal(stockCount(state,'slices'),6);
   assert.equal(homeStock(state,state.industry.warehouses[0],'slices'),6);
   assert.equal(homeStock(state,HOUSE,'slices'),0);
+  assert.deepEqual(state.resourceReceipts, [{ anchor:warehouse.id, icon:'slices', amount:6, at:state.time }]);
   assert.deepEqual(importGame(JSON.stringify(state)),state);
 });
 

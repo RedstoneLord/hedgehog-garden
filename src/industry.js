@@ -5,6 +5,7 @@ import { fuelCapacity, hasResearch, researchSite, researchSites } from './resear
 import { HOUSE, skilledWorkRate, takeReady } from './orchard.js';
 import { canWalkStraight, closestRoadSegment, distance, findRoute, findFreightRoute, followRoute, roadGap, routeTo } from './routes.js';
 import { roadDistance, terrainKind, WORLD } from './terrain.js';
+import { recordReceipt } from './resource-receipts.js';
 
 export const PRODUCTION_PRICE = 10_000;
 export const JAR_PRICE = 14;
@@ -112,6 +113,7 @@ export function adjustStock(state, key, amount, home) {
   if (key === 'apples') state.apples += amount;
   else if (key === 'berries') state.trade.berries += amount;
   else state.industry.stock[key] = stockCount(state, key) + amount;
+  if (amount > 0) recordReceipt(state, homeId(home), GOODS[key].icon, amount);
 }
 
 export function nearestHome(state, point, key, reserve = 0, housingOnly = false) {
@@ -320,7 +322,6 @@ export const industryActions = {
     if (!state.industry.unlocked || ![4, 8, 20].includes(amount) || state.trade.coins < amount * JAR_PRICE) return false;
     state.trade.coins -= amount * JAR_PRICE;
     adjustStock(state, 'jars', amount);
-    notify(state, `Банки на складе +${amount}.`, 'jar');
     return true;
   },
   buyWheatSeed(state) {
@@ -545,12 +546,17 @@ function unloadTractor(state, trip, deposit, worker) {
   else if (generator?.kind === 'generator') {
     const accepted = Math.min(trip.amount,Math.max(0,fuelCapacity(state) - (generator.stock[trip.item] ?? 0)));
     generator.stock[trip.item] = (generator.stock[trip.item] ?? 0) + accepted;
+    recordReceipt(state, generator.id, GOODS[trip.item].icon, accepted);
     if (accepted < trip.amount) adjustStock(state,trip.item,trip.amount - accepted,nearestHome(state,generator));
   }
-  else if (shop) shop.inputs[trip.item] = (shop.inputs[trip.item] ?? 0) + trip.amount;
+  else if (shop) {
+    shop.inputs[trip.item] = (shop.inputs[trip.item] ?? 0) + trip.amount;
+    recordReceipt(state, shop.id, GOODS[trip.item].icon, trip.amount);
+  }
   else if (stall) {
     const accepted = Math.min(trip.amount, shelfRoom(state, stall, trip.item, false));
     if (accepted) stall.stock[trip.item] = (stall.stock[trip.item] ?? 0) + accepted;
+    recordReceipt(state, `stall:${stall.id}`, GOODS[trip.item].icon, accepted);
     if (trip.amount > accepted) adjustStock(state, trip.item, trip.amount - accepted, nearestHome(state, stall));
   }
   else adjustStock(state, trip.item, trip.amount, homesFor(state).find(home => homeId(home) === trip.to) ?? HOUSE);
@@ -577,6 +583,7 @@ function movePorter(state, site, worker, seconds, walk) {
     if (cargo.siteId && cargo.siteId === site.id) {
       if (walk(site, worker, seconds)) {
         site.inputs[cargo.item] = (site.inputs[cargo.item] ?? 0) + cargo.amount;
+        recordReceipt(state, site.id, GOODS[cargo.item].icon, cargo.amount);
         delete worker.industryCargo;
         uniqueWork(state,worker,'restock');
       }
@@ -627,12 +634,12 @@ export function advanceIndustry(state, seconds, deposit, plan) {
   for (const shop of state.industry.workshops) {
     if (shop.electric && shop.batch?.method === 'factory') shop.batch.until += 1000 * seconds * (1 - (shop.power ?? 0));
     if (shop.batch?.until <= state.time) {
-      const { key, method } = shop.batch;
+      const { key } = shop.batch;
       const amount = shop.batch.amount ?? RECIPES[key].amount + Number(state.upgrades.includes('largerBatches'));
       shop.output[key] = (shop.output[key] ?? 0) + amount;
       rememberGood(state, key);
       if (GOODS[key].value && !state.industry.knownProducts.includes(key)) state.industry.knownProducts.push(key);
-      if (method === 'manual') notify(state, `${GOODS[key].label} +${amount}.`, GOODS[key].icon);
+      recordReceipt(state, shop.id, GOODS[key].icon, amount);
       state.xpProgress += amount * 2;
       const maker = state.workers.find(worker => worker.id === shop.batch.workerId);
       uniqueWork(state,maker,'maker');
@@ -665,7 +672,9 @@ export function advanceIndustry(state, seconds, deposit, plan) {
     const miner = available('miner', mine.id);
     if (mine.mineAt && mine.mineAt <= state.time) {
       const starter = state.workers.find(worker => worker.id === mine.minerId);
-      mine.coal += mine.pendingCoal ?? baseCoal(mine);
+      const amount = mine.pendingCoal ?? baseCoal(mine);
+      mine.coal += amount;
+      recordReceipt(state, mine.id, 'coal', amount);
       rememberGood(state, 'coal');
       mine.mineAt = null;
       delete mine.pendingCoal;
@@ -697,6 +706,7 @@ export function advanceIndustry(state, seconds, deposit, plan) {
       if (!walk(tractor, driver, seconds)) continue;
       if (driver.fuelCan) {
         tractor.tank = (tractor.tank ?? 0) + driver.fuelCan;
+        recordReceipt(state, tractor.id, 'fuel', driver.fuelCan);
         delete driver.fuelCan;
       }
       if (driver.retirePending || driver.pendingAssignment) continue;

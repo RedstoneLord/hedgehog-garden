@@ -1,4 +1,5 @@
-import { adjustStock, incomingGoods, nearestHome, stockCount } from './industry.js';
+import { adjustStock, GOODS, incomingGoods, nearestHome, stockCount } from './industry.js';
+import { recordReceipt } from './resource-receipts.js';
 
 export const SCIENTIST_GOODS = {
   apples: 20000, berries: 10000, wheat: 10000, flour: 5000, coal: 1000, fuel: 500,
@@ -30,6 +31,7 @@ export function advanceScientist(state, clearCounterId) {
   if (commission?.stage !== 'accepted' || (clearCounterId !== stall.id && stall.customers.some(customer => customer.phase === 'queue'))) return;
   for (const [key, amount] of Object.entries(commission.intake)) {
     commission.bank[key] = (commission.bank[key] ?? 0) + amount;
+    recordReceipt(state, `stall:${stall.id}`, GOODS[key].icon, amount);
     delete commission.intake[key];
   }
 }

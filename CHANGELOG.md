@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2.4
+
+- Moved Картошка’s goals to the bottom-right corner. Removed the main map’s stall shortcut, audio toggles, and camera buttons.
+- Replaced resource gain messages with compact amounts and icons on the map and in facility panels.
+- Updated house descriptions to explain that each house has its own storage.
+
+See the [0.7.2.4 release notes](versions/0.7.2.4/RELEASE.md).
+
 ## 0.7.2.3
 
 - Supply hedgehogs keep market stalls stocked between orders, with separate storage for apples, berries, and prepared goods.

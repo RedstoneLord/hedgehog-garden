@@ -3,6 +3,7 @@ import { marketDemand } from './siting.js';
 import { ScientistPanel } from './research-screen.jsx';
 import { scientistStall } from './commission.js';
 import { GameSelect } from './game-select.jsx';
+import { ResourceReceipts } from './resource-receipts.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './art.jsx';
 import { CustomerGallery } from './customer-gallery.jsx';
@@ -56,7 +57,9 @@ export function MarketScreen({ state, stall, dispatch, onClose, onMove, onFindBe
     onCancel={event => { event.preventDefault(); if (gallery) toggleGallery(); else onClose(); }}>
     <header className="screen-header market-header">
       <h2 id="market-title"><Glyph name={gallery ? 'group' : 'market'}/>{gallery ? 'Посетители' : `Лавка ${state.trade.stalls.indexOf(stall) + 1}`}</h2>
-      <p><Glyph name="coin"/> {number.format(state.trade.coins)} <span>монет</span></p>
+      <p className="receipt-anchor"><Glyph name="coin"/> {number.format(state.trade.coins)} <span>монет</span>
+        <ResourceReceipts receipts={state.resourceReceipts?.filter(receipt => receipt.anchor === `stall:${stall.id}`)} className="hud-receipts"/>
+      </p>
       <div className="market-header-actions">
         <button type="button" className="pixel-button" aria-pressed={gallery} onClick={toggleGallery}><Glyph name={gallery ? 'market' : 'group'}/>{gallery ? 'Лавка' : 'Гости'}</button>
         <button type="button" className="pixel-button" onClick={onClose}><Glyph name="back"/> Карта</button>

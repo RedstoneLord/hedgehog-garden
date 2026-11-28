@@ -84,10 +84,6 @@
 @media (prefers-reduced-motion: reduce) {
   .sprinkler-drop, .working-shop .workshop-smoke, .tractor-art.driving .tractor-wheel { animation: none; }
 }
-@media (max-width: 799px) {
-  .game-shell .camera-controls { bottom: calc(var(--mobile-menu-bottom) + 47px); }
-  .game-shell:has(.side-window.open) .map-viewport + .camera-controls { visibility: hidden; }
-}
  
 .game-select { min-width: 0; }
 .game-select-toggle, .game-select-option { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 6px;

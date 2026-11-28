@@ -4,6 +4,7 @@ import { SCIENTIST_GOODS, scientistStall, scientistInTransit } from './commissio
 import { hasResearch, powerNetworks, researchSites, stationLabel } from './research.js';
 import { WORLD } from './terrain.js';
 import { GameSelect } from './game-select.jsx';
+import { ResourceReceipts } from './resource-receipts.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './art.jsx';
 import { IndustryArt } from './industry-art.jsx';
@@ -205,7 +206,9 @@ function Warehouse({ state, onFocus, dispatch }) {
       const onSite = item => home ? homeStock(state,home,item) : (site.output?.[item] ?? 0) + (site.inputs?.[item] ?? 0) + (site.stock?.[item] ?? 0)
         + (site.kind === 'mine' && ['fuel','coal'].includes(item) ? site[item] ?? 0 : 0) + (site.kind === 'tractor' && item === 'fuel' ? Math.floor(site.tank ?? 0) : 0);
       const reserved = item => state.industry.tractors.reduce((sum,{trip}) => sum + (trip?.source === id && trip.item === item && !trip.loaded ? trip.amount : 0),0);
-      return <section className="pixel-window industry-panel warehouse-panel" key={id}><h3>{label}</h3>
+      return <section className="pixel-window industry-panel warehouse-panel" key={id}><h3 className="receipt-anchor">{label}
+        <ResourceReceipts receipts={state.resourceReceipts?.filter(receipt => receipt.anchor === id)} className="panel-receipts"/>
+      </h3>
         <div className="industry-stock">{keys.filter(item => onSite(item) || incomingGoods(state,id,item) || reserved(item)).map(item => <div key={item}>
           <Good item={item} qty={Math.max(0,onSite(item)-reserved(item))}/>
           {reserved(item) > 0 && <small> · резерв {reserved(item)}</small>}
@@ -272,7 +275,7 @@ export function IndustryScreen({ state, dispatch, initialSite, initialTab, onClo
           {Object.entries(BUILDINGS).filter(([kind]) => state.industry.unlocked || kind === 'house').map(([kind, data]) => <section key={kind} className="pixel-window industry-panel">
             <div className="industry-art"><IndustryArt site={{kind}}/></div>
             <h3>{data.label}</h3>
-            <p>{{ workshop: 'Готовит продукты. Фабрика работает на топливе.', mine: 'Северные горы. Запасы угля не иссякают.', tractor: 'Доставляет грузы. Нужны водитель и топливо.', house: '+5 мест для ёжиков. Запасы у домов общие.', warehouse: 'Дополнительное место приёма грузов. Работники и тракторы могут забирать отсюда товары.' }[kind]}</p>
+            <p>{{ workshop: 'Готовит продукты. Фабрика работает на топливе.', mine: 'Северные горы. Запасы угля не иссякают.', tractor: 'Доставляет грузы. Нужны водитель и топливо.', house: '+5 мест для ёжиков и собственное хранилище.', warehouse: 'Дополнительное место приёма грузов. Работники и тракторы могут забирать отсюда товары.' }[kind]}</p>
             <button type="button" className="pixel-button" disabled={state.trade.coins < buildingPrice(state, kind)} onClick={() => onBuild(kind)}>Поставить · <Money amount={buildingPrice(state, kind)}/></button>
           </section>)}
         </div>
@@ -295,11 +298,12 @@ export function IndustryScreen({ state, dispatch, initialSite, initialTab, onClo
           const send = (action, fields) => dispatch(action, { id: site.id, ...fields });
           const label = site.level === 3 ? 'Фабрика' : BUILDINGS[site.kind].label;
           return <section key={site.id} className="pixel-window industry-panel" data-open={expanded === site.id}>
-            <div className="industry-station">
+            <div className="industry-station receipt-anchor">
               <button className="pixel-button" type="button" aria-expanded={expanded === site.id} onClick={() => setExpanded(expanded === site.id ? null : site.id)}><Glyph name={BUILDINGS[site.kind].icon}/> {label} {site.number}</button>
               <small>{site.kind === 'house' ? '+5 мест' : site.kind === 'warehouse' ? 'Хранилище грузов' : site.automatic === false ? 'На паузе'
                 : staff.map(worker => worker.name).join(', ') || (site.level === 3 ? 'Автоматизация' : 'Нужен ёжик')}</small>
               <button className="pixel-button mini square" type="button" aria-label={`Показать на карте: ${label} ${site.number}`} onClick={() => onFocus(site)}><Glyph name="map"/></button>
+              <ResourceReceipts receipts={state.resourceReceipts?.filter(receipt => receipt.anchor === site.id)} className="panel-receipts"/>
             </div>
             {expanded === site.id && <div className="industry-details">
               {site.kind === 'workshop' && <Workshop site={site} state={state} send={send}/>}
